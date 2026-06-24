@@ -1,36 +1,39 @@
 # rf IDEAS — Credential Read Height Automation
 
-Automated credential read height testing using a **UFACTORY Lite 6** robot arm and rf IDEAS WAVE ID readers.
+Automated credential read-height testing using a **UFACTORY Lite 6** robot arm and
+rf IDEAS **WAVE ID** readers. Full docs are in [`../docs/`](../docs/README.md).
 
 ## Folder layout
 
 ```
 Automation/
-├── config.py              # Shared settings and card map
-├── run.py                 # Launch GUI
-├── requirements.txt
+├── config.py            # Central settings: paths, robot IP, test params, card map
+├── requirements.txt     # Python dependencies
+├── README.md            # This quick reference
 │
-├── gui/                   # Application UI
-│   ├── app.py             # Main window
-│   └── checks.py          # Startup hardware checks
+├── barcode/
+│   └── scanner.py       # Barcode capture + card lookup (files/AllCards.csv)
 │
-├── hwg/                   # HWG+ reader configuration files
-│   └── cepas.hwg+
+├── gui/
+│   └── gui.py           # Tkinter control + monitoring GUI
 │
-├── robot/                 # Lite 6 motion and test runner
-│   ├── controller.py      # Robot SDK stub — implement here
-│   └── test_runner.py     # Test sequence entry point
+├── hwg/                 # HWG+ reader-config files (one per card technology)
+│   └── *.hwg+
 │
-├── reader/                # Reader tools
-│   ├── cli.py             # RRMTool CLI helpers (used by GUI)
-│   ├── ReaderConfig.py    # CLI config tool
-│   └── ReaderConfigSDK.py # USB HID config tool
+├── reader/
+│   ├── cli.py               # RRMTool CLI helpers (used by runner/GUI)
+│   ├── ReaderConfig.py      # Scan-and-configure loop (no robot)
+│   └── ReaderConfigSDK.py   # Direct USB HID reader tool
 │
-├── barcode/               # Barcode scanner
-│   └── scanner.py         # Scan capture + card lookup
+├── robot/
+│   ├── cardreadheight.py    # Main test runner (CLI entry point)
+│   ├── move.py              # RobotMain motion logic
+│   ├── cardheight.py        # Standalone height helper
+│   └── test_settings.py     # Live-tunable test parameters
 │
-└── logs/
-    └── results/           # Exported CSV files
+├── logs/                # Runtime logs (git-ignored)
+└── files/
+    └── Robot Test Cards.xlsx   # Reference card list
 ```
 
 ## Setup
@@ -39,33 +42,26 @@ Automation/
 pip install -r requirements.txt
 ```
 
-Edit `config.py` for `RRM_CLI`, `ROBOT_IP`, and `CARD_TYPE_MAP`.
+Edit `config.py` for `RRM_CLI`, `ROBOT_IP`, and the card mapping.
 
 ## Run
 
 ```bash
-python run.py
+# GUI
+python gui/gui.py
+
+# Command line (see ../docs/USAGE.md for all options)
+python robot/cardreadheight.py --cycles 14
+python robot/cardreadheight.py --dry-run     # no robot — validate pipeline
 ```
 
-Or:
+## Reader tools
 
 ```bash
-python gui/app.py
+python reader/ReaderConfig.py                # scan-and-configure loop
+python reader/ReaderConfigSDK.py about       # reader info (direct USB HID)
+python reader/ReaderConfigSDK.py set-cepas   # configure for CEPAS
 ```
-
-## Reader CLI tools
-
-```bash
-python reader/ReaderConfig.py about
-python reader/ReaderConfig.py load [file.hwg+]
-python reader/ReaderConfigSDK.py about
-```
-
-## Next steps
-
-1. Implement `robot/controller.py` with the Lite 6 Python SDK
-2. Wire `robot/test_runner.py` to robot motion + read detection
-3. Add HWG files to `hwg/` and barcodes to `CARD_TYPE_MAP` in `config.py`
 
 ---
 
