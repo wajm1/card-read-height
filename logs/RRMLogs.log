@@ -1,0 +1,65 @@
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 11:17:16.650] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 11:17:16.653] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 11:17:16.653] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 11:17:16.891] [RRM_file_logger] [error] 104:- Entered file extension for Secure HWG+ is incorrect(Only .hwg+ is supported)
+[2026-06-18 11:17:31.304] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 11:17:31.471] [RRM_file_logger] [error] 106:- Entered File Location Command for Secure HWG+ is incorrect. Please use [] bracket for fileLocation
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 11:18:29.494] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 11:18:29.495] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 11:18:29.495] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 11:18:29.498] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 11:18:29.498] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 11:18:29.645] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 11:18:29.648] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 11:18:29.648] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 11:18:30.865] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 11:35:32.725] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 11:35:32.728] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 11:35:32.728] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 11:35:33.955] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 11:35:34.110] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 11:35:34.113] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 11:35:34.113] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF

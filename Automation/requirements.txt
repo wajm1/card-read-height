@@ -1,0 +1,5 @@
+keyboard>=0.13.5
+xarm-python-sdk>=1.13.0
+
+# Optional: direct HID reader configuration
+# hidapi

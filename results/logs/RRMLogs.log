@@ -1,0 +1,34 @@
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 12:43:22.309] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 12:43:22.312] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 12:43:22.312] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] Part-Number          :- RDR-805x1BxU
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] SDK-Version          :- 7.9.1
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] Firmware Filename    :- WN5020900UPX360
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] USB-Firmware         :- 0.2.9.0
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] Maximum Configuration:- 4
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] CPU0-Application     :- 0.2.9.0 1304
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] CPU0-Boot Loader     :- 0.2.0.2
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] CPU0-RF Modem        :- 0.1.5.0
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] Full Firmware Version:- 02.09.0-1304
+[2026-06-18 12:43:22.461] [RRM_file_logger] [info] Vendor Name          :- 0C27:3BFA RF IDeas
+[2026-06-18 12:43:22.464] [RRM_file_logger] [info] ESN                  :- 2C002F00085034334E30312000000000
+[2026-06-18 12:43:22.464] [RRM_file_logger] [info] LUID                 :- 65535/0xFFFF
+[2026-06-18 12:43:33.293] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 12:43:33.633] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 13:58:07.652] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 13:58:07.988] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:18:26.265] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:18:26.610] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:19:01.163] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:19:01.492] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:19:35.092] [RRM_file_logger] [info] Your operation is successfully executed
+[2026-06-18 14:19:35.424] [RRM_file_logger] [info] Your operation is successfully executed
