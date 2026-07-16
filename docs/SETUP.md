@@ -14,7 +14,8 @@ Installation and configuration for the Credential Read Height Automation system.
 **Software**
 
 - **Python 3.10+** on the control PC (Windows is the primary target — some scripts use
-  Windows-only modules such as `msvcrt` and `keyboard`).
+  Windows-only modules such as `msvcrt` and `keyboard`). In practice the GUI is often
+  run under **Python 3.14**; **3.10+ remains the documented minimum**.
 - **RRMTool** (rf IDEAS Reader Management Tool) installed, for CLI-based reader config.
 
 ## 1. Install Python dependencies
@@ -24,12 +25,26 @@ cd Automation
 pip install -r requirements.txt
 ```
 
-`requirements.txt` pulls in:
+**Required** (from `requirements.txt`):
 
 - `keyboard` — barcode-scanner capture
 - `xarm-python-sdk` — Lite 6 robot control
-- `hid` / `hidapi` *(optional)* — only needed for direct USB HID reader config
-  (`reader/ReaderConfigSDK.py`)
+
+**Optional:**
+
+```bash
+# Live arm panel inside the GUI
+pip install pyopengltk PyOpenGL numpy
+
+# Direct USB HID reader tool (reader/ReaderConfigSDK.py)
+pip install hid
+# or: pip install hidapi
+
+# ROS2 bridge (tools/ros2/ros2_bridge.py) — run in a ROS2 environment
+# (Ubuntu / WSL2), not the Windows GUI Python. See tools/ros2/README.txt.
+```
+
+Commented optional lines also appear in `Automation/requirements.txt`.
 
 ## 2. Configure `config.py`
 
@@ -57,21 +72,77 @@ The RRMTool path is resolved in this order: the `RRM_CLI` environment variable, 
 `C:\Program Files\rf IDEAS\RRMTool\RRMTool_CLI.exe`, then a `~/Downloads/...` fallback.
 Set `RRM_CLI` or edit `_RRM_CLI_CANDIDATES` if your install lives elsewhere.
 
-## 3. Verify connections
+## 3. Config / data files (workspace root)
+
+| Path | Purpose |
+|------|---------|
+| `Automation/config.py` | Robot IP, speeds, poses, path helpers |
+| `files/AllCards.csv` | Barcode → Name / Part Number / Side / saved averages |
+| `files/hwg/*.hwg+` | One HWG+ per card technology (filename = AllCards **Name**) |
+| `files/card_readers.json` | Reader library: `config` block + `card_readers[]` with `id`/`model`, `height_mm`, optional overrides |
+
+**HWG path is `files/hwg/` — not `Automation/hwg/`.** (`config.PATHS["hwg"]` points at the workspace `files/hwg/` folder.)
+
+`card_readers.json` template fields (briefly):
+
+- `config.mode` — `"absolute"` (recommended) or `"relative"`
+- `config.table_z_mm` — absolute Z of the table surface (calibrate once)
+- `config.default_read_gap_mm`, `approach_clearance_mm`, `staging_angle_deg`, …
+- Each `card_readers[]` entry: `id` / `model`, `height_mm`, optional `read_gap_mm`, `enabled`, `notes`
+
+## 4. Verify the arm and pipeline
 
 ```bash
 cd Automation
 
-# Reader (direct USB HID) — prints reader info
-python reader/ReaderConfigSDK.py about
+# Network reachability (replace with your ROBOT_IP)
+ping 192.168.1.177
 
-# Robot + reader without motion — validates the pipeline and writes a dry-run CSV
+# Pipeline without motion — validates CSV/results path
 python robot/cardreadheight.py --dry-run
+
+# Optional: also load a sample HWG during dry-run
+python robot/cardreadheight.py --dry-run --reader-config
 ```
 
-## 4. Card → reader-config mapping
+**Pre-flight checklist**
 
-A scanned barcode is matched against **`files/AllCards.csv`** (at the repository root):
+1. Arm powered, no other session holding the connection (close UFACTORY Studio if needed).
+2. Reader USB plugged; RRMTool_CLI found (`RRM_CLI` / Program Files).
+3. Barcode scanner in keyboard-wedge mode (types into Notepad).
+4. Card stack seated; HWG files present under `files/hwg/`.
+5. For Live arm: meshes in `Automation/gui/viewer/meshes/visual/*.stl` and optional OpenGL deps installed.
+
+## 5. Launch GUI and CLI
+
+```bash
+cd Automation
+
+# GUI (primary)
+python gui/gui.py
+
+# Same GUI via CLI flag
+python robot/cardreadheight.py --gui
+
+# Headless CLI run
+python robot/cardreadheight.py --cycles 14
+```
+
+## 6. Live arm / mesh assets
+
+Meshes **must** be in:
+
+```
+Automation/gui/viewer/meshes/visual/
+    link_base.stl, link1.stl … link6.stl
+```
+
+(singular `visual/`, not `visuals/`). The browser viewer also needs
+`Automation/gui/viewer/lite6_viewer.html` and `lite6.urdf` beside that tree.
+
+## Card → reader-config mapping
+
+A scanned barcode is matched against **`files/AllCards.csv`**:
 
 ```csv
 Barcode,Name,Part Number,Side
@@ -79,44 +150,49 @@ A001,CASI-RUSCO UID,620-IM-0013,A
 A003,HID Prox UID (608x),600-I-0013,A
 ```
 
-The card's **Name** maps directly to an HWG+ file of the same name in
-`Automation/hwg/` (e.g. `CASI-RUSCO UID` → `Automation/hwg/CASI-RUSCO UID.hwg+`). To
-support a new card:
+The card's **Name** maps to an HWG+ file of the same name in **`files/hwg/`**
+(e.g. `CASI-RUSCO UID` → `files/hwg/CASI-RUSCO UID.hwg+`). To support a new card:
 
-1. Create/obtain its `.hwg+` file and drop it in `Automation/hwg/`.
-2. Add a row to `files/AllCards.csv` whose `Name` matches the HWG filename (without the
-   `.hwg+` extension).
+1. Drop its `.hwg+` file in `files/hwg/`.
+2. Add a row to `files/AllCards.csv` whose `Name` matches the HWG filename (without `.hwg+`).
 
-(There is also a small `CARD_TYPE_MAP` in `config.py` used by the barcode-prefix path for
-CEPAS test cards.)
+(`CARD_TYPE_MAP` in `config.py` is a small barcode-prefix fallback for CEPAS test cards.)
 
 ## Project structure
 
 ```
 card-read-height/
 ├── README.md
-├── .gitignore
-├── Automation/
-│   ├── config.py            Central settings
-│   ├── requirements.txt
-│   ├── README.md            Quick reference
-│   ├── barcode/scanner.py   Barcode capture + card lookup
-│   ├── gui/gui.py           Tkinter GUI
-│   ├── hwg/*.hwg+           Reader-config files (one per card technology)
-│   ├── logs/                Runtime logs (git-ignored)
-│   ├── reader/
-│   │   ├── cli.py               RRMTool CLI helpers
-│   │   ├── ReaderConfig.py      Scan-and-configure loop
-│   │   └── ReaderConfigSDK.py   Direct USB HID tool
-│   ├── robot/
-│   │   ├── cardreadheight.py    Main test runner (CLI)
-│   │   ├── move.py              RobotMain motion logic
-│   │   ├── tools/cardheight.py        Standalone height helper
-│   │   └── test_settings.py     Live-tunable test parameters
-│   └── files/Robot Test Cards.xlsx
-├── docs/                    This documentation
-├── files/AllCards.csv       Barcode → card-type lookup
-└── results/                 Test-output CSVs (Keep/ is retained)
+├── ARCHITECTURE.md
+├── REFACTOR_NOTES.md
+├── docs/
+├── files/
+│   ├── AllCards.csv
+│   ├── card_readers.json
+│   └── hwg/*.hwg+
+├── results/
+└── Automation/
+    ├── config.py
+    ├── requirements.txt
+    ├── README.md
+    ├── barcode/scanner.py
+    ├── gui/
+    │   ├── gui.py, app.py, gui_robot.py
+    │   ├── constants.py, widgets.py
+    │   ├── arm_gl.py, robot_viewer.py
+    │   └── viewer/…/meshes/visual/*.stl
+    ├── reader/
+    │   ├── cli.py
+    │   ├── ReaderConfig.py
+    │   └── ReaderConfigSDK.py
+    ├── robot/
+    │   ├── cardreadheight.py
+    │   ├── move.py
+    │   └── test_settings.py      # CLI only — GUI does not import this
+    └── tools/
+        ├── cardheight.py
+        ├── experimental/move2.py
+        └── ros2/ros2_bridge.py
 ```
 
 > **Important:** `config.py` derives the workspace root as the folder *above*

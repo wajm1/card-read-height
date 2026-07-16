@@ -11,16 +11,17 @@ Documentation for the rf IDEAS **Credential Read Height Automation** system.
 
 The top-level [../README.md](../README.md) has the high-level overview and repository
 layout. [../Automation/README.md](../Automation/README.md) is a one-page quick reference.
+Refactor history: [../REFACTOR_NOTES.md](../REFACTOR_NOTES.md).
 
 ## What the system does
 
 1. The **Lite 6 robot arm** picks a card from a stack.
 2. While moving to the scanner, it listens for a **barcode** to identify the card.
 3. It looks the barcode up in `files/AllCards.csv` to get the card type, then loads the
-   matching **HWG+ file** from `Automation/hwg/` to configure the reader.
-4. It lowers the card toward the **reader**, stepping down until a read is detected.
-5. It records the **read height** (the highest point at which the card still reads) to a
-   CSV in `results/`.
+   matching **HWG+ file** from **`files/hwg/`** to configure the reader.
+4. It presents the card for **Read Height** (multi-angle zone-in) and/or **Tap-and-Go**
+   timing (GUI modes; CLI runner is read-height oriented).
+5. It records results to a CSV in `results/` (baselines may update `files/AllCards.csv`).
 
 ## Hardware
 
@@ -33,16 +34,18 @@ layout. [../Automation/README.md](../Automation/README.md) is a one-page quick r
 | Component | File | Role |
 |-----------|------|------|
 | Settings | `Automation/config.py` | All paths, robot IP, test parameters, card map |
-| Test runner | `Automation/robot/cardreadheight.py` | Main command-line entry point |
-| GUI | `Automation/gui/gui.py` | Tkinter control + live monitoring |
+| Test runner (CLI) | `Automation/robot/cardreadheight.py` | Headless entry; `--gui` → GUI |
+| GUI entry | `Automation/gui/gui.py` | Thin launcher → `app.App` |
+| GUI app / robot | `gui/app.py`, `gui/gui_robot.py` | Screens + GuiRobot orchestration |
 | Robot motion | `Automation/robot/move.py` | `RobotMain` — pick, move, descend-until-read |
 | Reader (CLI) | `Automation/reader/cli.py` | RRMTool CLI helpers used by the runner/GUI |
 | Reader (HID) | `Automation/reader/ReaderConfigSDK.py` | Direct USB HID reader tool |
 | Reader (loop) | `Automation/reader/ReaderConfig.py` | Scan-and-configure loop (no robot) |
 | Barcode | `Automation/barcode/scanner.py` | Scan capture + card lookup |
+| Optional tools | `Automation/tools/` | cardheight, move2, ros2_bridge |
 
 ## Version
 
 - System: Credential Read Height Automation (Lite 6 / WAVE ID)
-- Python: 3.10+ (uses `int | None` style type hints)
+- Python: 3.10+ (uses `int | None` style type hints; GUI often run on 3.14)
 - Internal use only — rf IDEAS
