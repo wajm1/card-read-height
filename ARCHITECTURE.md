@@ -238,18 +238,18 @@ Duplicates today: `lite6_viewer.html` / `lite6.urdf` also sit beside `gui.py`. B
 
 ---
 
-## 8. Deletion / quarantine candidates (NEED YOUR SIGN-OFF)
+## 8. Deletion / quarantine candidates — Phase 2 COMPLETED
 
-**Do not delete until confirmed.** When unsure, treat as load-bearing.
+Phase 2 declutter executed against the sign-off list below. Outcomes:
 
-| Item | Evidence | Proposed action | Risk if wrong |
-|------|----------|-----------------|---------------|
-| `gui/arm3d.py` | try-imported; never referenced after import; Live arm uses `arm_gl` | **Delete** (or move to `tools/legacy/`) | None for current GUI path; lose matplotlib fallback skeleton |
-| `robot/move2.py` | Nothing imports it; undocumented entry | **Quarantine** to `tools/experimental/` or delete | Lose reverse-characteriser script |
-| `robot/cardheight.py` | Nothing imports it; documented as helper; hardcoded IP | **Keep** as `tools/` or ask — used during table-Z commissioning? | Lose interactive Z jogger |
-| `gui/ros2_bridge.py` | Not imported; optional UDP consumer | **Keep**, relocate under `tools/ros2/` | Breaks ROS telemetry workflow if moved without docs |
-| Duplicate `gui/lite6_*.{html,urdf}` (beside gui.py) | Canonical copies under `viewer/` | After sign-off, remove duplicates if viewer copies are complete | Browser view if viewer/ incomplete |
-| Stale `__pycache__/viewer/meshes/visuals/` | Wrong path leftover | Safe to ignore/delete (bytecode cache) | None |
+| Item | Proposed action | Phase 2 outcome |
+|------|-----------------|-----------------|
+| `gui/arm3d.py` | Delete (or quarantine) | **DELETED** (was never tracked in git). `gui.py` import strip is in the working tree but `gui.py` was **not committed** due to a large pre-existing dirty diff |
+| `robot/move2.py` | Quarantine or delete | **QUARANTINED** → `tools/experimental/move2.py` |
+| `robot/cardheight.py` | Keep as tools / ask | **MOVED** → `tools/cardheight.py` |
+| `gui/ros2_bridge.py` | Keep under tools/ros2 | **MOVED** → `tools/ros2/ros2_bridge.py` |
+| Duplicate `gui/lite6_*.{html,urdf}` beside `gui.py` | Remove after viewer/ verified | **DEDUPED** — lite6 assets only under `gui/viewer/` |
+| Stale `__pycache__/viewer/meshes/visuals/` | Ignore/delete | Left as local bytecode junk (not part of source layout) |
 
 ### Explicitly **not** candidates for deletion
 
@@ -268,40 +268,88 @@ Duplicates today: `lite6_viewer.html` / `lite6.urdf` also sit beside `gui.py`. B
 
 ---
 
-## 10. Proposed Phase 2 target layout (proposal only — no moves yet)
+## 10. Phase 2 target layout — COMPLETED
 
-Something in this family, after deletion sign-off:
+Declutter finished. Runtime core stays under `gui/`, `robot/`, `barcode/`, `reader/`; optional helpers live under `tools/`:
 
 ```
 Automation/
-  config.py                 # stays (or thin re-export at top level later)
-  gui/
-    gui.py                  # thin entry → App wiring
-    app.py / widgets.py / … # Phase 3 extractions
-    arm_gl.py
-    viewer/                 # meshes + html + urdf
-  robot/                    # core motion + CLI runner
+  config.py
+  README.md
+  requirements.txt
   barcode/
+    scanner.py
+  gui/
+    gui.py
+    arm_gl.py
+    robot_viewer.py
+    viewer/                 # lite6 html + urdf + meshes (canonical only)
+  robot/
+    move.py
+    cardreadheight.py
+    test_settings.py
   reader/
-  tools/                    # optional / experimental / ROS / commissioning
-    ros2_bridge.py
-    move2.py?               # if kept
-    cardheight.py?          # if kept
-    arm3d.py?               # if kept as legacy
+    cli.py
+    ReaderConfig.py
+    ReaderConfigSDK.py
+  tools/
+    README.md
+    cardheight.py           # commissioning Z jogger
+    experimental/
+      move2.py              # quarantined
+    ros2/
+      README.txt
+      ros2_bridge.py
 ```
 
-Exact tree will be proposed again in Phase 2 after your deletion decisions.
+Phase 3 next: split `gui.py` along the seams listed in §6 (no further tree moves required for declutter).
 
 ---
 
-## 11. Phase 1 wait state
+## 11. Phase 2 COMPLETED
 
-**Stopped here per instructions.** Next step needs your confirmation on the deletion list in §8:
+Phase 1 wait-state questions are resolved. Phase 2 outcomes (see also §8):
 
-1. Delete `arm3d.py`? (Y/N / quarantine)
-2. Delete or quarantine `move2.py`?
-3. Keep / move / delete `cardheight.py`?
-4. Keep `ros2_bridge.py` under `tools/ros2/`?
-5. Remove duplicate `lite6_*` beside `gui.py` once `viewer/` copies verified?
+1. `arm3d.py` — **DELETED** (never tracked); `gui.py` import cleanup present in working tree only (not committed with Phase 2 due to large pre-existing dirty diff).
+2. `move2.py` — **QUARANTINED** to `tools/experimental/move2.py`.
+3. `cardheight.py` — **MOVED** to `tools/cardheight.py`.
+4. `ros2_bridge.py` — **MOVED** to `tools/ros2/ros2_bridge.py`.
+5. Duplicate lite6 assets — **DEDUPED**; only `gui/viewer/` remains.
 
-After sign-off → Phase 2 (declutter tree, small commits, compile + pyflakes each step).
+Next: Phase 3 (`gui.py` modular split) / Phase 4 (stale docs).
+
+---
+
+## Post-Phase-2 tree
+
+Paths relative to `Automation/` (`*.py`, `*.md`, `*.txt`, `*.html`, `*.urdf`, `*.stl`; excluding `__pycache__`):
+
+```
+barcode/scanner.py
+config.py
+gui/arm_gl.py
+gui/gui.py
+gui/robot_viewer.py
+gui/viewer/lite6.urdf
+gui/viewer/lite6_viewer.html
+gui/viewer/meshes/visual/link_base.stl
+gui/viewer/meshes/visual/link1.stl
+gui/viewer/meshes/visual/link2.stl
+gui/viewer/meshes/visual/link3.stl
+gui/viewer/meshes/visual/link4.stl
+gui/viewer/meshes/visual/link5.stl
+gui/viewer/meshes/visual/link6.stl
+reader/cli.py
+reader/ReaderConfig.py
+reader/ReaderConfigSDK.py
+README.md
+requirements.txt
+robot/cardreadheight.py
+robot/move.py
+robot/test_settings.py
+tools/cardheight.py
+tools/experimental/move2.py
+tools/README.md
+tools/ros2/README.txt
+tools/ros2/ros2_bridge.py
+```
