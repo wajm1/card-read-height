@@ -2,12 +2,13 @@
 
 Role
     Owns the device checklist, test-select (Read Height / Tap-and-Go / Combined),
-    main run panel, reader calibrator, CSV autosave/export, and optional Live-arm
-    (OpenGL) / browser mesh-viewer wiring. Instantiated by ``gui.main()``.
+    main run panel, reader calibrator, CSV autosave/export, and hybrid browser
+    workcell view wiring. Instantiated by ``gui.main()``.
 
 Inputs
     Operator selections (reader model, card count, angles, flip, descent preset).
-    Optional deps: ``arm_gl`` (pyopengltk), ``robot_viewer`` (stdlib HTTP).
+    Optional deps: ``robot_viewer`` (stdlib HTTP). ``arm_gl`` remains importable
+    but is not embedded in the main panel (browser view instead).
 
 Outputs / side effects
     Connects to Lite 6 via XArmAPI; drives ``GuiRobot`` test loops; writes CSVs
@@ -46,9 +47,9 @@ try:
 except Exception:            # pragma: no cover
     robot_viewer = None
 
-# Optional EMBEDDED OpenGL mesh viewer (in-window live sim). Needs pyopengltk+PyOpenGL.
+# Optional EMBEDDED OpenGL mesh viewer — not used in the hybrid main panel.
 try:
-    import arm_gl
+    import arm_gl  # noqa: F401
 except Exception:            # pragma: no cover
     arm_gl = None
 
@@ -114,8 +115,9 @@ class App:
         self.root.title("rf IDEAS — Credential Read Height Test")
         self.root.configure(bg=BRAND['bg'])
         self.root.geometry("1060x820")
-        self.root.minsize(900, 600)
+        self.root.minsize(480, 560)
         self.root._pass_keys_to_gui = False
+        self._float_mode = False            # compact always-on-top on main panel
         try:
             import keyboard
             keyboard.unhook_all()
@@ -140,12 +142,12 @@ class App:
         self._calib_reader_floor_above_table = None  # captured floor (mm above table)
         self._calib_busy = False
         self._calib_capturing = False       # True while MARK is capturing (blocks jogs)
-        # ── live 3D view + optional ROS2 telemetry ──
-        self._arm3d = None                  # ArmGLViewer (embedded Live arm; name kept for compatibility)
+        # ── browser workcell view + optional ROS2 telemetry ──
         self.selected_tests = ["read_height"]  # subset of ["read_height", "tap_and_go"]
         self._viewer = None                 # RobotViewerServer (browser mesh view)
         self._telem_udp = None              # _TelemetryUDP when streaming
         self._last_joints = None
+        self._last_suction = False
 
         # checklist state
         self.chk = {"robot": False, "reader": False, "barcode": False}
@@ -246,10 +248,25 @@ class App:
         for w in self.container.winfo_children():
             w.destroy()
 
+    def _set_float_mode(self, enabled):
+        """Compact always-on-top control panel (main) vs normal setup windows."""
+        self._float_mode = bool(enabled)
+        try:
+            self.root.attributes("-topmost", bool(enabled))
+        except Exception:
+            pass
+        if enabled:
+            self.root.geometry("520x820")
+            self.root.minsize(480, 560)
+        else:
+            self.root.geometry("1060x820")
+            self.root.minsize(900, 600)
+
     # =====================================================================
     # CHECKLIST SCREEN
     # =====================================================================
     def show_checklist(self):
+        self._set_float_mode(False)
         self._clear_container()
         wrap = tk.Frame(self.container, bg=BRAND['bg'])
         wrap.pack(expand=True)
@@ -414,6 +431,7 @@ class App:
     def show_test_select(self):
         """Pick which test(s) to run after the device checks pass. Tests can be
         combined — tick both to run Read Height and Tap-and-Go on each card."""
+        self._set_float_mode(False)
         self._clear_container()
         wrap = tk.Frame(self.container, bg=BRAND['bg'])
         wrap.pack(expand=True)
@@ -512,12 +530,13 @@ class App:
                 self._scanner = None
         except Exception:
             pass
+        self._set_float_mode(True)
         self._clear_container()
         main = tk.Frame(self.container, bg=BRAND['bg'])
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
         # ---- left: setup (scrollable so it fits any screen height) ----
-        left = tk.Frame(main, bg=BRAND['card'], width=392, highlightthickness=1,
+        left = tk.Frame(main, bg=BRAND['card'], width=240, highlightthickness=1,
                         highlightbackground=BRAND['divider'])
         left.pack(side=tk.LEFT, fill=tk.Y)
         left.pack_propagate(False)
@@ -618,7 +637,7 @@ class App:
             self.preset_hint = tk.Label(
                 pad, text=self._preset_hint(self.preset_var.get()),
                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
-                anchor="w", justify="left", wraplength=320,
+                anchor="w", justify="left", wraplength=200,
             )
             self.preset_hint.pack(anchor=tk.W, pady=(4, 0))
             speed_combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
@@ -683,7 +702,7 @@ class App:
                                      fg=BRAND['purple'], bg=BRAND['card'], hover=BRAND['light'],
                                      font=FONT_SMALL, pady=6)
         self.calib_btn.pack(fill=tk.X, pady=(0, 6))
-        self.mesh_btn = flat_button(pad, "OPEN 3D MESH VIEW (browser)", self._open_mesh_viewer,
+        self.mesh_btn = flat_button(pad, "REOPEN 3D VIEW", self._open_mesh_viewer,
                                     fg=BRAND['purple'], bg=BRAND['card'], hover=BRAND['light'],
                                     font=FONT_SMALL, pady=6)
         self.mesh_btn.pack(fill=tk.X, pady=(0, 6))
@@ -705,33 +724,6 @@ class App:
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(14, 0))
         rp = tk.Frame(right, bg=BRAND['card'])
         rp.pack(fill=tk.BOTH, expand=True, padx=18, pady=16)
-
-        # ── embedded live 3D mesh view (OpenGL) ──
-        section_label(rp, "Live arm").pack(anchor=tk.W)
-        arm_holder = tk.Frame(rp, bg=BRAND['card'], height=240)
-        arm_holder.pack(fill=tk.X, pady=(4, 10))
-        arm_holder.pack_propagate(False)
-        self._arm3d = None
-        _Viewer = getattr(arm_gl, "ArmGLViewer", None) if arm_gl is not None else None
-        if _Viewer is not None:
-            try:
-                mesh_dir = os.path.join(self._viewer_dir(), "meshes", "visual")
-                self._arm3d = _Viewer(arm_holder, mesh_dir,
-                                      brand={"bg3d": "#1b1d23"})
-                self._arm3d.frame.pack(fill=tk.BOTH, expand=True)
-                if self._last_joints:
-                    self._arm3d.update(self._last_joints, force=True)
-            except Exception as e:
-                self._arm3d = None
-                tk.Label(arm_holder, text="3D view failed to start:\n{}".format(e),
-                         fg=BRAND['subtle'], bg=BRAND['card'], justify="center").pack(expand=True)
-        else:
-            tk.Label(
-                arm_holder,
-                text=("Embedded 3D needs pyopengltk + PyOpenGL.\n"
-                      "Install:  py -3.14 -m pip install pyopengltk PyOpenGL\n"
-                      "(meshes must be in viewer\\meshes\\visual\\)"),
-                fg=BRAND['subtle'], bg=BRAND['card'], justify="center").pack(expand=True)
 
         topr = tk.Frame(rp, bg=BRAND['card'])
         topr.pack(fill=tk.X)
@@ -805,6 +797,8 @@ class App:
         nb.add(log_tab, text="Activity log")
 
         self.set_status("Ready — set parameters and press START")
+        # Hybrid layout: open the browser workcell view behind this float panel.
+        self.root.after(200, self._open_mesh_viewer)
 
     def _field(self, parent, text):
         tk.Label(parent, text=text, font=FONT_SMALL, fg=BRAND['text'],
@@ -885,7 +879,10 @@ class App:
                 if kind == "log":
                     self._append_log(payload)
                 elif kind == "telemetry":
-                    self._feed_telemetry(payload)
+                    if isinstance(payload, (tuple, list)) and len(payload) == 2:
+                        self._feed_telemetry(payload[0], payload[1])
+                    else:
+                        self._feed_telemetry(payload)
                 elif kind == "progress":
                     cycle, total, phase = payload
                     if hasattr(self, "progress_lbl"):
@@ -1091,7 +1088,9 @@ class App:
             self.robot = robot
             self._last_robot = robot
             # Live joint stream for the 3D view / ROS2 (read-only, cached reads).
-            robot.start_telemetry(lambda j: self._q.put(("telemetry", j)))
+            robot.start_telemetry(
+                lambda j, s=False: self._q.put(("telemetry", (j, s)))
+            )
             if self._has_read_height() and self._has_tapgo():
                 robot.run_combined()
             elif self._has_tapgo():
@@ -1696,7 +1695,7 @@ class App:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer")
 
     def _open_mesh_viewer(self):
-        """Start the local three.js mesh viewer and open it in the browser."""
+        """Start the local three.js workcell viewer and open it in the browser."""
         if robot_viewer is None:
             messagebox.showinfo("Mesh viewer unavailable",
                                 "robot_viewer.py is missing — place it beside gui.py.")
@@ -1716,9 +1715,9 @@ class App:
         try:
             url = self._viewer.start()
             if self._last_joints:
-                self._viewer.set_joints(self._last_joints)
+                self._viewer.set_state(self._last_joints, self._last_suction)
             self._viewer.open_in_browser()
-            self.set_status("3D mesh view opened in browser: {}".format(url))
+            self.set_status("3D workcell view: {} (Tk panel stays on top)".format(url))
         except Exception as e:
             messagebox.showerror("Mesh viewer error", str(e))
 
@@ -1733,15 +1732,16 @@ class App:
                 self._telem_udp = None
             self.set_status("ROS2 telemetry stopped.")
 
-    def _feed_telemetry(self, joints):
-        """Route a fresh joint-angle sample to the 3D view and/or ROS2 bridge."""
+    def _feed_telemetry(self, joints, suction=None):
+        """Route a fresh joint/suction sample to the browser view and/or ROS2 bridge."""
         if not joints:
             return
         self._last_joints = joints
-        if self._arm3d is not None and self._arm3d.alive():
-            self._arm3d.update(joints)
+        if suction is not None:
+            self._last_suction = bool(suction)
         if self._viewer is not None:
-            self._viewer.set_joints(joints)
+            self._viewer.set_state(
+                joints, self._last_suction if suction is not None else None)
         if self._telem_udp is not None:
             self._telem_udp.send_joints(joints)
 
@@ -1763,12 +1763,6 @@ class App:
                 pass
             self._calib_arm = None
         # close the 3D view and telemetry stream
-        if self._arm3d is not None:
-            try:
-                self._arm3d.close()
-            except Exception:
-                pass
-            self._arm3d = None
         if self._telem_udp is not None:
             try:
                 self._telem_udp.close()

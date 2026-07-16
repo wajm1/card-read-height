@@ -144,10 +144,22 @@ class GuiRobot(RobotMain):
         self._on_result = None
         self._last_barcode = None
         self.results = []
+        self.suction_on = False            # mirrored for live 3D card mesh
         self._tcp_speed = config.MOTION_TCP_SPEED
         self._tcp_acc = config.MOTION_TCP_ACC
         self._angle_speed = config.MOTION_JOINT_SPEED
         self._angle_acc = config.MOTION_JOINT_ACC
+
+    def _set_suction(self, on, wait=False, delay_sec=0):
+        """Set vacuum and mirror ``suction_on`` for the browser workcell view.
+
+        Same SDK call as ``set_suction_cup(..., hardware_version=1)`` — timing
+        and wait semantics are unchanged; only a boolean flag is recorded.
+        """
+        self.suction_on = bool(on)
+        return self._arm.set_suction_cup(
+            bool(on), wait=wait, delay_sec=delay_sec, hardware_version=1,
+        )
 
     def apply_preset(self, preset_name):
         """Point the descent parameters at a Slow/Medium/Fast preset."""
@@ -879,9 +891,7 @@ class GuiRobot(RobotMain):
         # 3) Settle, then release.
         if config.RELEASE_DWELL_S > 0:
             time.sleep(config.RELEASE_DWELL_S)
-        code = self._arm.set_suction_cup(
-            False, wait=True, delay_sec=0, hardware_version=1,
-        )
+        code = self._set_suction(False, wait=True, delay_sec=0)
         return self._check_code(code, "release card")
 
     def _flip_card(self):
@@ -905,7 +915,7 @@ class GuiRobot(RobotMain):
         # 2) release the card into the fixture
         # 2) release the card into the fixture (wait=False: don't wait on the
         #    object-detection sensor — matches the working Studio sequence)
-        code = self._arm.set_suction_cup(False, wait=False, delay_sec=0, hardware_version=1)
+        code = self._set_suction(False, wait=False, delay_sec=0)
         if not self._check_code(code, "flip release"):
             return False
         if FLIP_RELEASE_DWELL_S > 0:
@@ -927,7 +937,7 @@ class GuiRobot(RobotMain):
         #    wait=False is REQUIRED here: the card isn't under the cup yet, so
         #    waiting for object-detection would time out (code 41). The seal
         #    forms as it descends and during FLIP_SETTLE_S below.
-        code = self._arm.set_suction_cup(True, wait=False, delay_sec=0, hardware_version=1)
+        code = self._set_suction(True, wait=False, delay_sec=0)
         if not self._check_code(code, "flip suction on"):
             return False
         code = self._arm.set_position(
@@ -1009,10 +1019,12 @@ class GuiRobot(RobotMain):
 
     # ---- telemetry (read-only live joint stream for the 3D view / ROS2) ----
     def start_telemetry(self, callback, hz=12.0):
-        """Start a daemon thread that reports live joint angles (degrees) via
-        `callback(joints)`. Reads the SDK's cached joint state (no extra motion
-        commands), so it never interferes with control. Safe no-op to call
-        start/stop repeatedly."""
+        """Start a daemon thread that reports live joint angles via callback.
+
+        ``callback(joints, suction_on)`` receives degrees and the mirrored
+        suction flag. Reads the SDK's cached joint state (no extra motion
+        commands). Safe no-op to call start/stop repeatedly.
+        """
         self.stop_telemetry()
         self._telemetry_cb = callback
         self._telemetry_stop = threading.Event()
@@ -1033,7 +1045,10 @@ class GuiRobot(RobotMain):
             try:
                 ret = self._arm.get_servo_angle()
                 if ret[0] == 0 and self._telemetry_cb:
-                    self._telemetry_cb(list(ret[1])[:6])
+                    self._telemetry_cb(
+                        list(ret[1])[:6],
+                        bool(getattr(self, "suction_on", False)),
+                    )
             except Exception:
                 pass
             ev.wait(period)
@@ -1101,12 +1116,12 @@ class GuiRobot(RobotMain):
                         PICK_ANGLE, 'move to pick', radius=pick_radius,
                     ):
                         break
-                    self._arm.set_suction_cup(True, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(True, wait=False, delay_sec=0)
                     pick_z = self.smart_pick()
                     if pick_z is not None:
                         break
                     print('>> Pick attempt {} failed.'.format(attempt + 1))
-                    self._arm.set_suction_cup(False, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=False, delay_sec=0)
 
                 if pick_z is None:
                     error_flag = "PICK FAIL"
@@ -1196,7 +1211,7 @@ class GuiRobot(RobotMain):
                     except Exception:
                         pass
                 if self._arm.error_code == 0 and (self._arm.state or 0) < 4:
-                    self._arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=True, delay_sec=0)
                     self._move_joint(
                         config.HOME_ANGLE, 'park home',
                         radius=config.MOTION_JOINT_RADIUS,
@@ -1427,12 +1442,12 @@ class GuiRobot(RobotMain):
                         break
                     if not self._move_joint(PICK_ANGLE, 'move to pick', radius=pick_radius):
                         break
-                    self._arm.set_suction_cup(True, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(True, wait=False, delay_sec=0)
                     pick_z = self.smart_pick()
                     if pick_z is not None:
                         break
                     print('>> Pick attempt {} failed.'.format(attempt + 1))
-                    self._arm.set_suction_cup(False, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=False, delay_sec=0)
 
                 if pick_z is None:
                     print('>> Skipping card {} (pick failed).'.format(i + 1))
@@ -1514,7 +1529,7 @@ class GuiRobot(RobotMain):
                     except Exception:
                         pass
                 if self._arm.error_code == 0 and (self._arm.state or 0) < 4:
-                    self._arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=True, delay_sec=0)
                     self._move_joint(config.HOME_ANGLE, 'park home',
                                      radius=config.MOTION_JOINT_RADIUS)
                 else:
@@ -1603,12 +1618,12 @@ class GuiRobot(RobotMain):
                         break
                     if not self._move_joint(PICK_ANGLE, 'move to pick', radius=pick_radius):
                         break
-                    self._arm.set_suction_cup(True, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(True, wait=False, delay_sec=0)
                     pick_z = self.smart_pick()
                     if pick_z is not None:
                         break
                     print('>> Pick attempt {} failed.'.format(attempt + 1))
-                    self._arm.set_suction_cup(False, wait=False, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=False, delay_sec=0)
 
                 if pick_z is None:
                     print('>> Skipping card {} (pick failed).'.format(i + 1))
@@ -1677,7 +1692,7 @@ class GuiRobot(RobotMain):
                     except Exception:
                         pass
                 if self._arm.error_code == 0 and (self._arm.state or 0) < 4:
-                    self._arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
+                    self._set_suction(False, wait=True, delay_sec=0)
                     self._move_joint(config.HOME_ANGLE, 'park home',
                                      radius=config.MOTION_JOINT_RADIUS)
                 else:

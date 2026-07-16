@@ -1,13 +1,14 @@
 """Local HTTP three.js Lite 6 mesh viewer (browser) for the Tk GUI.
 
 Role
-    Dependency-free stdlib ``http.server`` that serves ``gui/viewer/`` assets
-    and a ``/joints`` JSON endpoint. Read-only: the browser never commands the arm.
+    Dependency-free stdlib ``http.server`` that serves ``gui/viewer/`` assets,
+    a ``/joints`` JSON endpoint (angles + suction), and ``/stations`` (workcell
+    marker joint poses). Read-only: the browser never commands the arm.
 
 Inputs
     ``root_dir`` with ``lite6_viewer.html``, ``lite6.urdf``, and
-    ``meshes/visual/link_base.stl`` … ``link6.stl``. Joint angles (deg) via
-    ``set_joints``.
+    ``meshes/visual/link_base.stl`` … ``link6.stl``. Joint angles (deg) and
+    optional suction flag via ``set_state``.
 
 Outputs / side effects
     Binds a local TCP port (default 8765); opens a browser tab on request.
@@ -17,7 +18,7 @@ Usage from the GUI::
     v = RobotViewerServer(root_dir)
     url = v.start()          # e.g. http://127.0.0.1:8765/
     v.open_in_browser()
-    v.set_joints([j1..j6])   # degrees; call from the telemetry feed
+    v.set_state([j1..j6], suction=True)
     v.stop()
 """
 
@@ -37,6 +38,23 @@ _MIME = {
     ".json": "application/json",
     ".css": "text/css",
 }
+
+
+def _station_defs():
+    """Workcell markers as joint poses (deg) from gui/constants.py."""
+    try:
+        from constants import (
+            DROP_ANGLE, PICK_ANGLE, READER_STAGING_0_ANGLE, FLIP_REGRAB_POSE,
+        )
+    except Exception:
+        return []
+    return [
+        {"id": "drop", "label": "Drop", "j": [float(x) for x in DROP_ANGLE[:6]]},
+        {"id": "pickup", "label": "pick up", "j": [float(x) for x in PICK_ANGLE[:6]]},
+        {"id": "reader", "label": "Reader",
+         "j": [float(x) for x in READER_STAGING_0_ANGLE[:6]]},
+        {"id": "flip", "label": "Flip", "j": [float(x) for x in FLIP_REGRAB_POSE[:6]]},
+    ]
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -62,7 +80,17 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/joints":
             with srv.lock:
-                body = json.dumps({"j": list(srv.joints)}).encode("utf-8")
+                body = json.dumps({
+                    "j": list(srv.joints),
+                    "suction": bool(srv.suction),
+                }).encode("utf-8")
+            self._send(200, body, "application/json")
+            return
+
+        if path == "/stations":
+            with srv.lock:
+                stations = list(srv.stations)
+            body = json.dumps({"stations": stations}).encode("utf-8")
             self._send(200, body, "application/json")
             return
 
@@ -86,7 +114,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class RobotViewerServer:
-    """Serve viewer assets and live joint angles to a browser tab."""
+    """Serve viewer assets, live joint/suction state, and station poses."""
 
     def __init__(self, root_dir, host="127.0.0.1", port=8765):
         self.root_dir = os.path.abspath(root_dir)
@@ -95,6 +123,8 @@ class RobotViewerServer:
         self._httpd = None
         self._thread = None
         self.joints = [0.0] * 6
+        self.suction = False
+        self.stations = _station_defs()
         self.lock = threading.Lock()
 
     def files_present(self):
@@ -113,6 +143,8 @@ class RobotViewerServer:
         httpd = ThreadingHTTPServer((self.host, self.port), _Handler)
         httpd.root_dir = self.root_dir
         httpd.joints = self.joints
+        httpd.suction = self.suction
+        httpd.stations = self.stations
         httpd.lock = self.lock
         self._httpd = httpd
         self._thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -123,10 +155,20 @@ class RobotViewerServer:
         return "http://{}:{}/".format(self.host, self.port)
 
     def set_joints(self, joints):
-        """Update the cached J1–J6 angles (degrees) served at ``/joints``."""
+        """Update cached J1–J6 angles (degrees). Prefer ``set_state`` when suction is known."""
+        self.set_state(joints)
+
+    def set_state(self, joints, suction=None):
+        """Update joints and optional suction flag served at ``/joints``."""
         with self.lock:
-            for i in range(min(6, len(joints))):
-                self.joints[i] = float(joints[i])
+            if joints is not None:
+                for i in range(min(6, len(joints))):
+                    self.joints[i] = float(joints[i])
+            if suction is not None:
+                self.suction = bool(suction)
+            if self._httpd is not None:
+                self._httpd.joints = self.joints
+                self._httpd.suction = self.suction
 
     def open_in_browser(self):
         try:

@@ -20,8 +20,8 @@ Automation/
 │   ├── gui_robot.py     # GuiRobot orchestration (subclass of RobotMain)
 │   ├── constants.py     # Brand, poses, joint-limit helpers, reader library
 │   ├── widgets.py       # Shared Tk helpers
-│   ├── arm_gl.py        # Optional Live arm (OpenGL meshes)
-│   ├── robot_viewer.py  # Optional browser three.js viewer
+│   ├── arm_gl.py        # Optional OpenGL embed (not used in hybrid main UI)
+│   ├── robot_viewer.py  # Browser workcell view (:8765) + /joints + /stations
 │   └── viewer/          # lite6 html/urdf + meshes/visual/*.stl
 │
 ├── reader/
@@ -60,13 +60,18 @@ Edit `config.py` for `RRM_CLI`, `ROBOT_IP`, and the card mapping.
 ## Run
 
 ```bash
-# GUI
+# GUI (compact always-on-top panel + browser workcell view at :8765)
 python gui/gui.py
 
 # Command line (see ../docs/USAGE.md for all options)
 python robot/cardreadheight.py --cycles 14
 python robot/cardreadheight.py --dry-run     # no robot — validate pipeline
 ```
+
+On the main test screen the Tk window floats on top; the Lite 6 three.js view
+opens in the browser with Drop / pick up / Reader / Flip markers and a card mesh
+while suction is on. Use **REOPEN 3D VIEW** if the tab was closed. Orbit/zoom
+stay in the browser; test controls stay in Tk.
 
 ## Reader tools
 

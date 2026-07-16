@@ -114,12 +114,22 @@ python gui/gui.py
 
 ## Suggested follow-ups (behavior-change ideas deferred)
 
-- Rename `App._arm3d` → `_live_arm` (attribute still holds `ArmGLViewer`).
 - Commit-clean unused imports reported by pyflakes.
 - Unify or clearly share helpers between `GuiRobot` and `CardReadHeightTest`.
 - Wrap `ReaderConfigSDK.py` CLI dispatch in `if __name__ == "__main__"`.
 - Drop hardcoded IP in `tools/cardheight.py`; read `config.ROBOT_IP` / `TABLE_Z_MM`.
-- Optional: make Live-arm deps a documented extras group without forcing install.
+- Optional: richer fixture CAD in the browser workcell (current markers are boxes).
+- Optional: idle joint polling when the arm is connected but a test is not running.
+
+## Hybrid workcell view (post-refactor feature)
+
+Done on this branch after Phase 5:
+
+- Compact always-on-top Tk main panel; embedded OpenGL Live-arm panel removed from UI.
+- Auto-open browser viewer (`robot_viewer` / `viewer/lite6_viewer.html`) with `/stations`
+  (Drop, pick up, Reader, Flip from `constants` joint poses) and card mesh when
+  `suction` is true on `/joints`.
+- `GuiRobot._set_suction` mirrors vacuum state for the viewer without changing SDK call args.
 
 ## Doc discrepancies corrected
 
