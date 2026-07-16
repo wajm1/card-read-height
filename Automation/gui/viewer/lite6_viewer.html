@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Lite 6 — Live 3D</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1d23; overflow: hidden;
+               font-family: Arial, Helvetica, sans-serif; }
+  #c { width: 100vw; height: 100vh; display: block; }
+  #hud { position: fixed; left: 12px; top: 10px; color: #cfd2da; font-size: 12px;
+         background: rgba(0,0,0,.35); padding: 6px 10px; border-radius: 6px; }
+  #hud b { color: #ff5a4d; }
+  #err { position: fixed; left: 12px; bottom: 12px; right: 12px; color: #ffb3ad;
+         font-size: 12px; white-space: pre-wrap; background: rgba(60,0,0,.4);
+         padding: 8px 10px; border-radius: 6px; display: none; }
+  #status { position: fixed; right: 12px; top: 10px; color: #8f9; font-size: 12px;
+            background: rgba(0,0,0,.35); padding: 6px 10px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b>Lite 6</b> &nbsp; drag to orbit · scroll to zoom</div>
+<div id="status">connecting…</div>
+<div id="err"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/": "https://unpkg.com/three@0.160.0/",
+    "urdf-loader": "https://unpkg.com/urdf-loader@0.12.6/src/URDFLoader.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import URDFLoader from 'urdf-loader';
+
+const errBox = document.getElementById('err');
+const statusBox = document.getElementById('status');
+function showErr(msg) { errBox.style.display = 'block'; errBox.textContent += msg + '\n'; }
+window.addEventListener('error', e => showErr('JS error: ' + (e.message || e)));
+
+// ---- scene ----
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x1b1d23);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+camera.position.set(0.9, 0.8, 0.9);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.3, 0);
+controls.enableDamping = true;
+
+// lighting — soft studio feel
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 1.4);
+key.position.set(1.5, 2.5, 1.2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.1; key.shadow.camera.far = 10;
+key.shadow.camera.left = -1.5; key.shadow.camera.right = 1.5;
+key.shadow.camera.top = 1.5; key.shadow.camera.bottom = -1.5;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+fill.position.set(-1.5, 1.0, -1.0);
+scene.add(fill);
+
+// ground + grid
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(6, 6),
+  new THREE.ShadowMaterial({ opacity: 0.28 }));
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = 0;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(4, 40, 0x3a3d47, 0x2a2d36);
+scene.add(grid);
+
+// ---- load the Lite 6 URDF ----
+let robot = null;
+const JOINTS = ['joint1','joint2','joint3','joint4','joint5','joint6'];
+const manager = new THREE.LoadingManager();
+const loader = new URDFLoader(manager);
+
+// map package://lite6_description -> served /meshes
+loader.packages = { lite6_description: 'meshes' };
+loader.loadMeshCb = (path, mgr, done) => {
+  new STLLoader(mgr).load(
+    path,
+    geom => {
+      geom.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial(
+        { color: 0xe9e9ec, metalness: 0.25, roughness: 0.6 });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      done(mesh);
+    },
+    undefined,
+    e => showErr('mesh load failed: ' + path + '  (' + e + ')'));
+};
+
+loader.load('lite6.urdf',
+  result => {
+    robot = result;
+    // URDF is Z-up (meters); rotate into three.js Y-up
+    robot.rotation.x = -Math.PI / 2;
+    robot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(robot);
+    statusBox.textContent = 'model loaded';
+  },
+  undefined,
+  e => showErr('URDF load failed: ' + e));
+
+// ---- live joint feed (poll /joints) ----
+let haveData = false;
+async function poll() {
+  try {
+    const r = await fetch('joints', { cache: 'no-store' });
+    if (r.ok) {
+      const d = await r.json();
+      if (robot && Array.isArray(d.j)) {
+        for (let i = 0; i < JOINTS.length && i < d.j.length; i++) {
+          robot.setJointValue(JOINTS[i], d.j[i] * Math.PI / 180.0);
+        }
+        if (!haveData) { haveData = true; }
+        statusBox.textContent = 'live ●';
+        statusBox.style.color = '#8f9';
+      }
+    }
+  } catch (e) {
+    statusBox.textContent = 'no signal';
+    statusBox.style.color = '#fb8';
+  }
+}
+setInterval(poll, 80);
+
+// ---- render loop ----
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+}
+function animate() {
+  resize();
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+animate();
+</script>
+</body>
+</html>
