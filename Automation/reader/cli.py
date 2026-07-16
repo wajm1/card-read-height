@@ -18,9 +18,7 @@ def run_cli(*args, timeout: int = 30) -> str:
         return f"ERROR: RRMTool_CLI not found at {RRM_CLI}"
     cmd = [RRM_CLI, *[str(a) for a in args]]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         return f"ERROR: RRMTool_CLI timed out after {timeout}s"
@@ -52,12 +50,10 @@ def get_reader_info() -> dict:
 
 
 def _hwg_file_arg(hwg_path: str) -> str:
-    """RRMTool expects .hwg+ paths wrapped in brackets: [C:\\path\\file.hwg+]"""
     return f"[{os.path.abspath(hwg_path)}]"
 
 
 def parse_hwg_primary_card_type(hwg_path: str) -> int | None:
-    """First non-zero CardType from an HWG+ file."""
     try:
         with open(hwg_path, encoding="utf-8", errors="ignore") as f:
             for line in f:
@@ -75,7 +71,6 @@ def parse_hwg_primary_card_type(hwg_path: str) -> int | None:
 
 
 def get_reader_active_card_types(timeout: int = 5) -> list[int]:
-    """Quick read of active card types from the connected reader."""
     out = run_cli("-s", "-displayhwg", timeout=timeout)
     types: list[int] = []
     for line in out.splitlines():
@@ -91,7 +86,6 @@ def get_reader_active_card_types(timeout: int = 5) -> list[int]:
 
 
 def verify_reader_config_fast(hwg_path: str) -> tuple[bool, str]:
-    """Fast post-load check: reader active CardType matches HWG primary type."""
     expected = parse_hwg_primary_card_type(hwg_path)
     if expected is None:
         return True, "No CardType in HWG — skipped verify"
@@ -102,11 +96,21 @@ def verify_reader_config_fast(hwg_path: str) -> tuple[bool, str]:
 
     if expected in active:
         return True, f"CardType {expected} verified"
-
     return False, f"Expected CardType {expected}, reader has {active}"
 
 
-def configure_reader_for_card(card_info: dict, log_fn=None, *, verify: bool = True) -> bool:
+def _resolve_hwg_path(hwg_file: str) -> str:
+    if os.path.isabs(hwg_file):
+        return hwg_file
+    return os.path.join(config.PATHS["hwg"], os.path.basename(hwg_file))
+
+
+def configure_reader_for_card(
+    card_info: dict,
+    log_fn=None,
+    *,
+    verify: bool = True,
+) -> bool:
     def log(msg, tag="info"):
         print(msg)
         if log_fn:
@@ -117,9 +121,7 @@ def configure_reader_for_card(card_info: dict, log_fn=None, *, verify: bool = Tr
         log("No hwg file specified for this card type", "warn")
         return False
 
-    if not os.path.isabs(hwg_file):
-        hwg_file = os.path.join(config.PATHS["hwg"], os.path.basename(hwg_file))
-
+    hwg_file = _resolve_hwg_path(hwg_file)
     if not os.path.isfile(hwg_file):
         log(f"HWG file not found: {hwg_file}", "error")
         return False
@@ -128,19 +130,16 @@ def configure_reader_for_card(card_info: dict, log_fn=None, *, verify: bool = Tr
         log(f"RRMTool_CLI not found: {RRM_CLI}", "error")
         return False
 
-    file_arg = _hwg_file_arg(hwg_file)
     log(f"Loading: {hwg_file}", "info")
-    log(f"RRMTool: {RRM_CLI}", "info")
-
     try:
         result = subprocess.run(
-            [RRM_CLI, "-s", "-loadhwg", "-f", file_arg],
+            [RRM_CLI, "-s", "-loadhwg", "-f", _hwg_file_arg(hwg_file)],
             capture_output=True, text=True, timeout=60,
         )
     except subprocess.TimeoutExpired:
         log("RRMTool_CLI timed out while loading HWG", "error")
         return False
-    except OSError as e: 
+    except OSError as e:
         log(f"Could not run RRMTool_CLI: {e}", "error")
         return False
 

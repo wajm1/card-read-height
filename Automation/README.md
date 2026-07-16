@@ -7,18 +7,15 @@ rf IDEAS **WAVE ID** readers. Full docs are in [`../docs/`](../docs/README.md).
 
 ```
 Automation/
-├── config.py            # Central settings: paths, robot IP, test params, card map
+├── config.py            # Central settings: paths, robot IP, poses, card map
 ├── requirements.txt     # Python dependencies
 ├── README.md            # This quick reference
 │
 ├── barcode/
-│   └── scanner.py       # Barcode capture + card lookup (files/AllCards.csv)
+│   └── scanner.py       # Barcode capture + card lookup (../files/AllCards.csv)
 │
 ├── gui/
 │   └── gui.py           # Tkinter control + monitoring GUI
-│
-├── hwg/                 # HWG+ reader-config files (one per card technology)
-│   └── *.hwg+
 │
 ├── reader/
 │   ├── cli.py               # RRMTool CLI helpers (used by runner/GUI)
@@ -31,9 +28,13 @@ Automation/
 │   ├── tools/cardheight.py        # Standalone height helper
 │   └── test_settings.py     # Live-tunable test parameters
 │
-├── logs/                # Runtime logs (git-ignored)
-└── files/
-    └── Robot Test Cards.xlsx   # Reference card list
+└── logs/                # Runtime logs (git-ignored)
+
+../files/
+├── AllCards.csv         # Barcode → card-type lookup
+└── hwg/*.hwg+           # HWG+ reader-config files (one per card technology)
+
+../results/              # Test output CSVs
 ```
 
 ## Setup

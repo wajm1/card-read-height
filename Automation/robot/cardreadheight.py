@@ -5,7 +5,7 @@ cardreadheight.py — Combined card read height test for low-band credentials.
 Flow per card:
   1. Pick card from stack
   2. Start barcode listen immediately, lift and move to scanner while listening
-  3. Look up Files/LowBandCards.csv → load matching HWG
+  3. Look up files/AllCards.csv → load matching HWG
   4. Move to reader (side A or B from barcode), descend slowly until credential is read
   5. Record read height to results/ (FAIL if no read by 10mm floor)
 """
@@ -33,20 +33,10 @@ from barcode.scanner import BarcodeListener, lookup_card
 from reader.cli import (
     check_reader, configure_reader_for_card, get_reader_info,
 )
-from robot.move import RobotMain
+from robot.move import RobotMain, CardReadListener
 from robot.test_settings import TestSettings
 
-# ── Robot poses (from move.py) ──────────────────────────────────────────────
-
-PICK_ANGLE = [-43.6, 50.0, 71.5, 180.0, -19.8, -134.4]
-BARCODE_SCAN_ANGLE = [-43.7, 48.5, 71.5, 142.4, -74.1, -106.1]
-
-PLACE_ANGLE_SIDE_A = [4.2, 27.4, 39.5, 186.7, -10.4, -90]
-PLACE_ANGLE_SIDE_B = [4.2, 27.4, 39.5, 186.7, -10.4, -180]
-PLACE_ANGLES = {"A": PLACE_ANGLE_SIDE_A, "B": PLACE_ANGLE_SIDE_B}
-RELEASE_ANGLE = [44.4, 58.7, 76.5, 168.6, -14.4, -112.8]
-HOME_ANGLE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
+PLACE_ANGLES = {"A": config.PLACE_ANGLE_SIDE_A, "B": config.PLACE_ANGLE_SIDE_B}
 TABLE_Z = config.TABLE_Z_MM
 SCAN_TIMEOUT_S = 30
 BARCODE_WIGGLE_J6_DEG = 3.0
@@ -101,66 +91,6 @@ class RunStatus:
         self.read_height_mm: float | None = None
         self.current_pass = "\u2014"
         self.avg_height_mm: float | None = None
-
-
-class CardReadListener:
-    """Detect credential reads from the reader's USB keyboard-wedge output."""
-
-    def __init__(self, on_read=None):
-        self._on_read = on_read
-        self._event = threading.Event()
-        self._data = ""
-        self._captured = ""
-        self._hook = None
-
-    def start(self):
-        import keyboard
-
-        self._event.clear()
-        self._data = ""
-        self._captured = ""
-        self._hook = keyboard.hook(self._on_key)
-
-    def stop(self):
-        import keyboard
-
-        if self._hook:
-            keyboard.unhook(self._hook)
-            self._hook = None
-
-    @staticmethod
-    def _is_barcode_noise(data: str) -> bool:
-        d = data.strip().upper()
-        return len(d) == 4 and d[0] in "AB" and d[1:].isdigit()
-
-    def _on_key(self, event):
-        if event.event_type != "down":
-            return
-        if event.name == "enter":
-            text = self._data.strip()
-            self._data = ""
-            if text and not self._is_barcode_noise(text):
-                self._captured = text
-                self._event.set()
-                if self._on_read:
-                    self._on_read(text)
-        elif len(event.name) == 1:
-            self._data += event.name
-
-    def wait_for_read(self, timeout_s: float) -> bool:
-        return self._event.wait(timeout=timeout_s)
-
-    def is_set(self) -> bool:
-        return self._event.is_set()
-
-    def reset(self):
-        self._event.clear()
-        self._data = ""
-        self._captured = ""
-
-    @property
-    def data(self) -> str:
-        return self._captured or self._data.strip()
 
 
 class CardReadHeightTest(RobotMain):
@@ -259,7 +189,7 @@ class CardReadHeightTest(RobotMain):
         if self._barcode_event.is_set():
             return
 
-        base = list(BARCODE_SCAN_ANGLE)
+        base = list(config.BARCODE_SCAN_ANGLE)
         offsets = [BARCODE_WIGGLE_J6_DEG, -BARCODE_WIGGLE_J6_DEG, 0.0]
         self.pprint("Wiggling card in front of barcode scanner...")
 
@@ -289,7 +219,7 @@ class CardReadHeightTest(RobotMain):
 
         if self.is_alive and not self._barcode_event.is_set():
             self._move_to_servo(
-                BARCODE_SCAN_ANGLE, "barcode scanner center", speed=30, acc=200,
+                config.BARCODE_SCAN_ANGLE, "barcode scanner center", speed=30, acc=200,
             )
 
     def _finish_barcode_scan(self) -> dict | None:
@@ -306,7 +236,7 @@ class CardReadHeightTest(RobotMain):
         self._barcode_listener.stop()
 
         if not self._barcode_result:
-            self.pprint("Barcode scan timed out or card not found in LowBandCards.csv")
+            self.pprint("Barcode scan timed out or card not found in AllCards.csv")
             return None
 
         self.pprint(f"Card identified: {self._barcode_result['name']}")
@@ -568,7 +498,7 @@ class CardReadHeightTest(RobotMain):
             reader_model = self.reader_info.get("Part-Number", "unknown")
             self.pprint(f"Reader: {reader_model}")
 
-            if not self._move_to_servo(HOME_ANGLE, "home position", speed=180, acc=1100):
+            if not self._move_to_servo(config.HOME_ANGLE, "home position", speed=180, acc=1100):
                 return
             self.pprint(f"Starting {self.cycles} card cycle(s)...")
 
@@ -583,7 +513,7 @@ class CardReadHeightTest(RobotMain):
                 # ── Pick Position ─────────────────────────────────────────
                 self._angle_speed = 180
                 self._angle_acc = 1100
-                if not self._move_to_servo(PICK_ANGLE, "pick position"):
+                if not self._move_to_servo(config.PICK_ANGLE, "pick position"):
                     break
 
                 code = self._arm.set_suction_cup(
@@ -617,7 +547,7 @@ class CardReadHeightTest(RobotMain):
                 # ── Transit to barcode scanner (still listening) ────────
                 self._angle_speed = 180
                 self._angle_acc = 1100
-                if not self._move_to_servo(BARCODE_SCAN_ANGLE, "barcode scanner position"):
+                if not self._move_to_servo(config.BARCODE_SCAN_ANGLE, "barcode scanner position"):
                     self._barcode_listener.stop()
                     break
 
@@ -649,7 +579,7 @@ class CardReadHeightTest(RobotMain):
                 heights = self._run_read_height_at_place(side, self.scans)
 
                 # ── Release ───────────────────────────────────────────
-                if not self._move_to_servo(RELEASE_ANGLE, "release position", wait=False):
+                if not self._move_to_servo(config.RELEASE_ANGLE, "release position", wait=False):
                     break
                 code = self._arm.set_suction_cup(
                     False, wait=False, delay_sec=0, hardware_version=1,
@@ -687,7 +617,7 @@ class CardReadHeightTest(RobotMain):
             else:
                 self._arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
                 self._arm.set_servo_angle(
-                    angle=HOME_ANGLE, speed=60, mvacc=500, wait=True, radius=0.0,
+                    angle=config.HOME_ANGLE, speed=60, mvacc=500, wait=True, radius=0.0,
                 )
             self.alive = False
             self._arm.release_error_warn_changed_callback(self._error_warn_changed_callback)
@@ -707,7 +637,7 @@ def run_dry_run(*, configure_reader: bool = False) -> int:
 
     card = lookup_card("A001")
     if not card:
-        print("ERROR: Could not look up A001 in LowBandCards.csv")
+        print("ERROR: Could not look up A001 in AllCards.csv")
         return 1
     print(f"Lookup OK: {card['name']} -> {card['hwg']}")
     print(f"  Side:   {card.get('side', '?')}")

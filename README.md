@@ -20,15 +20,13 @@ card-read-height/
 │   ├── README.md            Quick reference
 │   ├── barcode/             Barcode scanner capture + card lookup
 │   ├── gui/                 Tkinter control/monitoring GUI
-│   ├── hwg/                 HWG+ reader-configuration files (one per card technology)
 │   ├── logs/                Runtime logs (git-ignored)
 │   ├── reader/              Reader configuration tools (RRMTool CLI + USB HID SDK)
-│   ├── robot/               Lite 6 motion + the read-height test runner
-│   └── files/               Reference data (Robot Test Cards.xlsx)
+│   └── robot/               Lite 6 motion + the read-height test runner
 │
 ├── docs/                ← full documentation (start with docs/SETUP.md)
 │
-├── files/               ← AllCards.csv — barcode → card-type lookup (read at runtime)
+├── files/               ← AllCards.csv + hwg/*.hwg+ (read at runtime)
 │
 └── results/             ← test-output CSVs (git-ignored)
     └── Keep/                Curated results to retain in version control
