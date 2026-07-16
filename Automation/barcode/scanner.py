@@ -1,5 +1,20 @@
-# barcode/scanner.py
-# Barcode scanner input and card lookup from scanned codes
+"""Barcode scanner capture and AllCards.csv card lookup / baseline helpers.
+
+Role
+    Keyboard-wedge barcode listening (``BarcodeListener``), card lookup against
+    workspace ``files/AllCards.csv``, and helpers to update / scrub saved
+    average read-height baselines. Used by robot motion, CLI, GUI, and
+    ``ReaderConfig``.
+
+Inputs
+    USB keyboard-wedge scans; ``files/AllCards.csv``; optional results CSVs
+    when importing/scrubbing baselines.
+
+Outputs / side effects
+    May rewrite ``files/AllCards.csv`` when updating averages. Hooks global
+    keyboard events (Windows may need admin). Resolves HWG names to
+    ``files/hwg/*.hwg+`` via ``config.get_hwg_path``.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,15 @@
-"""Live-tunable test parameters (GUI sliders update these in real time)."""
+"""CLI-tunable descent parameters for ``cardreadheight.py`` only.
+
+Role
+    ``TestSettings`` holds start height, step, min height, dwell/settle, and
+    descent/approach speeds for the CLI runner. Initialized from ``config``
+    defaults.
+
+Note
+    The Tk GUI does **not** import this module — GUI descent uses presets on
+    ``GuiRobot`` / ``constants.DESCENT_PRESETS``. Docs that said "GUI sliders
+    update these" were stale.
+"""
 
 from __future__ import annotations
 

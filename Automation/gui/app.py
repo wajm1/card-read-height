@@ -1,7 +1,18 @@
 """Tk application shell for credential read-height / tap-and-go testing.
 
-Owns the checklist, test-select, main panel, calibrator, CSV export, and
-optional Live-arm / browser viewer wiring. Instantiated by gui.main().
+Role
+    Owns the device checklist, test-select (Read Height / Tap-and-Go / Combined),
+    main run panel, reader calibrator, CSV autosave/export, and optional Live-arm
+    (OpenGL) / browser mesh-viewer wiring. Instantiated by ``gui.main()``.
+
+Inputs
+    Operator selections (reader model, card count, angles, flip, descent preset).
+    Optional deps: ``arm_gl`` (pyopengltk), ``robot_viewer`` (stdlib HTTP).
+
+Outputs / side effects
+    Connects to Lite 6 via XArmAPI; drives ``GuiRobot`` test loops; writes CSVs
+    under workspace ``results/``; may push baselines into ``files/AllCards.csv``.
+    Emits optional UDP telemetry for ``tools/ros2/ros2_bridge.py``.
 """
 
 import os
@@ -92,6 +103,12 @@ class _TelemetryUDP:
 # MAIN APP
 # ===========================================================================
 class App:
+    """Full Tk application: checklist → test select → run → results / calibrator.
+
+    Args:
+        root: ``tk.Tk`` instance owned by ``gui.main()``.
+    """
+
     def __init__(self, root):
         self.root = root
         self.root.title("rf IDEAS — Credential Read Height Test")

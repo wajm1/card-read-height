@@ -1,4 +1,12 @@
-"""Tk widget helpers shared by the read-height GUI (buttons, labels, steppers)."""
+"""Tk widget helpers shared by the read-height GUI (buttons, labels, steppers).
+
+Role
+    Small factory functions used by ``app.App`` for consistent brand styling.
+    No robot or reader I/O.
+
+Inputs / returns
+    Parent Tk widgets and style args in; constructed Tk widgets out.
+"""
 
 import os
 import sys
@@ -15,6 +23,7 @@ from barcode.scanner import register_tk_text_input
 
 
 def flat_button(parent, text, command, fg, bg, hover, font=FONT_BTN, pady=10, state=tk.NORMAL):
+    """Create a flat brand-styled Button with hover color."""
     b = tk.Button(parent, text=text, command=command, font=font, fg=fg, bg=bg,
                   activeforeground=fg, activebackground=hover, relief=tk.FLAT, bd=0,
                   padx=12, pady=pady, cursor="hand2", highlightthickness=0, state=state)
@@ -24,11 +33,13 @@ def flat_button(parent, text, command, fg, bg, hover, font=FONT_BTN, pady=10, st
 
 
 def section_label(parent, text, bg=None):
+    """Uppercase section header Label in brand purple."""
     return tk.Label(parent, text=text.upper(), font=FONT_H2,
                     fg=BRAND['purple'], bg=bg or BRAND['card'])
 
 
 def dot(parent, color, size=12, bg=None):
+    """Small filled status-dot Canvas; stores oval id on ``c._id`` for recolor."""
     c = tk.Canvas(parent, width=size, height=size, bg=bg or BRAND['card'], highlightthickness=0)
     cid = c.create_oval(2, 2, size - 1, size - 1, fill=color, outline="")
     c._id = cid

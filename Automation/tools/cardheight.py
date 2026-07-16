@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+"""Interactive TCP Z jogger for commissioning the Lite 6 over a known table Z.
+
+Role
+    Standalone helper (not used by GUI/CLI tests). Connects to a hardcoded
+    robot IP, locks a Studio-positioned reference pose, then prompts for
+    absolute Z targets so operators can measure heights above the table.
+
+Inputs
+    Operator ENTER after Studio positioning; typed Z values (mm) or Q to quit.
+
+Outputs / hardware side effects
+    Connects to Lite 6 and issues ``set_position`` Z moves. Does not use
+    ``config.py`` (IP / TABLE_Z are local constants — intentional for isolated
+    commissioning).
+
+Run from Automation/::
+
+    python tools/cardheight.py
+"""
+
 import time
 from xarm.wrapper import XArmAPI
 

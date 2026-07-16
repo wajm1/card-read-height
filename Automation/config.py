@@ -1,5 +1,21 @@
-# config.py
-# Central configuration for rf IDEAS Credential Read Height Automation
+"""Central configuration for rf IDEAS Credential Read Height Automation.
+
+Role
+    Single source of truth for robot IP, speeds, poses, height math, card-type
+    map, and workspace path helpers. Imported by nearly every Automation module.
+
+Inputs
+    Environment overrides: ``RRM_CLI``, ``ROBOT_IP``. Optional candidate paths
+    for RRMTool_CLI on Windows.
+
+Outputs / side effects
+    Resolves absolute paths under workspace ``files/`` (incl. ``files/hwg/``),
+    ``results/``, and ``Automation/logs/``. Does not talk to hardware itself;
+    callers use these values when driving the arm / RRMTool / CSV I/O.
+
+Workspace root is the parent of ``Automation/`` — do not move ``files/`` or
+``results/`` without updating ``PATHS`` here.
+"""
 
 import os
 
@@ -17,6 +33,7 @@ _RRM_CLI_CANDIDATES = [
 
 
 def resolve_rrm_cli() -> str:
+    """Return the first existing RRMTool_CLI path, or the Program Files default."""
     for path in _RRM_CLI_CANDIDATES:
         if path and os.path.isfile(path):
             return path
@@ -207,17 +224,21 @@ CSV_FIELDS = [
 
 
 def get_hwg_path(filename: str) -> str:
+    """Absolute path under ``files/hwg/`` for an HWG+ filename."""
     return os.path.join(PATHS["hwg"], filename)
 
 
 def get_log_path(filename: str) -> str:
+    """Absolute path under ``Automation/logs/``."""
     return os.path.join(PATHS["logs"], filename)
 
 
 def get_results_path(filename: str) -> str:
+    """Absolute path under workspace ``results/``."""
     return os.path.join(PATHS["results"], filename)
 
 
 def ensure_paths_exist() -> None:
+    """Create ``PATHS`` directories (hwg, logs, results, files) if missing."""
     for key in PATHS:
         os.makedirs(PATHS[key], exist_ok=True)

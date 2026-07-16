@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-"""
-cardreadheight.py — Combined card read height test for low-band credentials.
+"""CLI card read-height test runner (parallel orchestrator to GuiRobot).
+
+Role
+    ``CardReadHeightTest`` drives pick → barcode → HWG → descend-until-read
+    for a stack of cards and writes timestamped CSVs under ``results/``.
+    ``--gui`` delegates to ``gui.gui.main`` (does not use this class).
+
+Inputs
+    CLI args (``--ip``, ``--cycles``, ``--scans``, ``--dry-run``, …);
+    ``config`` / ``TestSettings``; Lite 6 + barcode + RRMTool when not dry-run.
+
+Outputs / hardware side effects
+    Arm motion and suction (unless ``--dry-run``); reader HWG loads; CSV in
+    workspace ``results/``.
 
 Flow per card:
   1. Pick card from stack
   2. Start barcode listen immediately, lift and move to scanner while listening
-  3. Look up files/AllCards.csv → load matching HWG
+  3. Look up files/AllCards.csv → load matching HWG from files/hwg/
   4. Move to reader (side A or B from barcode), descend slowly until credential is read
   5. Record read height to results/ (FAIL if no read by 10mm floor)
 """

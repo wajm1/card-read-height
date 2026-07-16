@@ -1,8 +1,17 @@
 """GUI constants, brand theme, joint-limit helpers, and reader-library loaders.
 
-Tuning knobs and poses for the Tk read-height app. Imported by gui.py / later
-by GuiRobot and App. Runtime behavior must stay identical to the pre-split
-monolith — change values only with explicit operator approval.
+Role
+    Shared tunables and poses for the Tk read-height app. Imported by
+    ``gui_robot``, ``app``, and ``widgets``. No hardware I/O.
+
+Inputs / outputs
+    Reads ``config`` defaults and optionally ``files/card_readers.json``
+    (via ``load_reader_library``). Exports brand colors, joint-limit helpers
+    (``nearest_j6_in_range``, ``joint_limit_issues``), CSV headers, and
+    descent/Tap-and-Go pose constants.
+
+Runtime behavior must stay identical to the pre-split monolith — change
+values only with explicit operator approval.
 """
 
 import os

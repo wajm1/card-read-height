@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-# move2.py
-# Lives under tools/experimental (optional/dev-only reverse characteriser).
-# rf IDEAS — Reverse Read-Height Characteriser
-#
-# Strategy: start inside the guaranteed read zone (53.975 mm above the table),
-# walk upward 1 mm at a time until the read is lost, then bisect back into the
-# boundary with 5 passes (~0.03 mm accuracy). Writes the result to CSV.
-#
-# Reads are detected via BarcodeListener (same mechanism as the GUI).
+"""Experimental reverse read-height characteriser (quarantined under tools/).
+
+Role
+    Optional/dev-only: starts inside a guaranteed read zone, walks upward until
+    the read is lost, then bisects the boundary. Writes results to CSV.
+    Not imported by the GUI or production CLI.
+
+Strategy: start inside the guaranteed read zone (53.975 mm above the table),
+walk upward 1 mm at a time until the read is lost, then bisect back into the
+boundary with 5 passes (~0.03 mm accuracy).
+
+Inputs / side effects
+    Lite 6 motion via ``RobotMain``; credential reads via ``BarcodeListener``;
+    reader info via ``reader.cli``. Hardcoded staging pose / motion constants.
+
+Run from Automation/::
+
+    python tools/experimental/move2.py
+"""
 
 import os
 import sys

@@ -1,6 +1,21 @@
-# gui.py — entry point for the credential read-height Tk GUI.
-# Run: python gui/gui.py  (from Automation/)
-"""Thin launcher. App and GuiRobot live in sibling modules."""
+"""Primary Tk GUI entry point for credential read-height / tap-and-go testing.
+
+Role
+    Thin launcher that builds the Tk root and hands control to ``app.App``.
+    All UI, orchestration, and motion live in sibling modules
+    (``app``, ``gui_robot``, ``constants``, ``widgets``, ``arm_gl``, ``robot_viewer``).
+
+Inputs / side effects
+    - Requires cwd / ``sys.path`` rooted at ``Automation/`` (this file adds that).
+    - Talks to the Lite 6 arm, USB barcode wedge, and RRMTool CLI via App/GuiRobot.
+    - Writes results CSVs under workspace ``results/``; may update ``files/AllCards.csv``.
+
+Run from Automation/::
+
+    python gui/gui.py
+
+Also reachable via ``python robot/cardreadheight.py --gui`` → ``from gui.gui import main``.
+"""
 
 import os
 import sys
@@ -19,6 +34,7 @@ import tkinter as tk
 
 
 def main():
+    """Create the Tk root, attach ``App``, and enter the event loop."""
     root = tk.Tk()
     App(root)
     root.mainloop()

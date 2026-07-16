@@ -1,5 +1,17 @@
-# reader/cli.py
-# RRMTool CLI helpers for reader detection and HWG configuration
+"""RRMTool CLI helpers for WAVE ID reader detection and HWG configuration.
+
+Role
+    Thin wrappers around ``RRMTool_CLI.exe`` used by the GUI, CLI runner, and
+    ``ReaderConfig``. Does not move the robot.
+
+Inputs
+    ``config.RRM_CLI`` path; HWG+ files under ``files/hwg/``; card dicts from
+    barcode lookup.
+
+Outputs / side effects
+    Subprocess calls to RRMTool (about / load config). Returns stdout text or
+    (ok, message) tuples — never raises on missing CLI (returns error strings).
+"""
 
 from __future__ import annotations
 
@@ -14,6 +26,7 @@ RRM_CLI = config.RRM_CLI
 
 
 def run_cli(*args, timeout: int = 30) -> str:
+    """Run RRMTool_CLI with ``args``; return combined stdout/stderr (or ERROR:…)."""
     if not os.path.isfile(RRM_CLI):
         return f"ERROR: RRMTool_CLI not found at {RRM_CLI}"
     cmd = [RRM_CLI, *[str(a) for a in args]]
@@ -27,6 +40,7 @@ def run_cli(*args, timeout: int = 30) -> str:
 
 
 def check_reader() -> tuple[bool, str]:
+    """Return (True, message) if RRMTool sees a reader; else (False, reason)."""
     if not os.path.isfile(RRM_CLI):
         return False, f"RRMTool_CLI not found — set RRM_CLI env var ({RRM_CLI})"
     out = run_cli("-about")

@@ -1,11 +1,16 @@
-"""arm_gl.py — REAL 3D Lite 6 mesh view embedded directly in the Tkinter GUI.
+"""Embedded OpenGL Lite 6 mesh viewer for the Tk GUI (Live arm panel).
 
-Uses pyopengltk + PyOpenGL to render the actual UFactory visual meshes,
-hardware-accelerated, as a Tk widget (no browser, no ROS). Read-only: it only
-consumes joint angles the GUI already polls.
+Role
+    Renders UFACTORY visual STL meshes inside a Tk widget via pyopengltk +
+    PyOpenGL. Read-only: consumes joint angles the GUI already polls; never
+    commands the arm.
 
-Requires (install once):  pip install pyopengltk PyOpenGL
-Reuses the mesh files from the browser viewer:  viewer/meshes/visual/*.stl
+Inputs
+    Parent Tk widget, path to ``viewer/meshes/visual/*.stl``, joint angles (deg).
+
+Outputs / side effects
+    Draws into an OpenGL frame. Requires optional deps:
+    ``pip install pyopengltk PyOpenGL numpy``.
 
 Kinematics use the Lite 6 URDF joint chain (validated to match the DH model to
 <1 mm), so the on-screen pose matches the real arm.
@@ -136,10 +141,12 @@ class ArmGLViewer:
             return False
 
     def update(self, joints_deg, force=False):
+        """Push live joint angles (degrees) into the OpenGL frame."""
         if self.ok and self._gl is not None:
             self._gl.set_joints(joints_deg)
 
     def close(self):
+        """Destroy the Tk frame hosting the viewer."""
         try:
             self.frame.destroy()
         except Exception:

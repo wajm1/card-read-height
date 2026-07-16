@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+"""Core Lite 6 motion library for credential read-height testing.
+
+Role
+    ``RobotMain`` wraps the xArm SDK: home, smart-pick, barcode scan + HWG
+    configure, descend-until-read, clean stop. ``CardReadListener`` detects
+    credential keyboard-wedge reads. Used by the GUI (``GuiRobot`` subclass)
+    and the CLI runner (``cardreadheight.py``).
+
+Inputs
+    Connected ``XArmAPI`` instance; settings from ``config``; barcode wedge
+    and RRMTool CLI via ``barcode.scanner`` / ``reader.cli``.
+
+Outputs / hardware side effects
+    Moves joints/TCP, operates suction cup, loads HWG to the reader, prints
+    status. Does not write the GUI/CLI results CSV (callers do).
+
+Windows-oriented (``msvcrt`` Q-to-stop listener). Prefer not editing motion
+timings/poses without operator approval.
+"""
+
 import os
 import sys
 import time
@@ -143,6 +163,15 @@ class CardReadListener:
 
 
 class RobotMain:
+    """Lite 6 motion core: pick, barcode+config, descend-until-read, clean stop.
+
+    Args:
+        robot: Connected ``XArmAPI`` instance.
+
+    Hardware side effects: joint/TCP motion, suction cup, reader configure via
+    ``reader.cli`` when scanning barcodes.
+    """
+
     def __init__(self, robot):
         self.alive = True
         self._arm = robot
@@ -203,6 +232,7 @@ class RobotMain:
         return self.is_alive
 
     def clean_stop(self):
+        """Release suction, stop motion cleanly, and disconnect from the arm."""
         print(">> Clean stop initiated...")
         self._arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
         time.sleep(0.3)
@@ -390,6 +420,7 @@ class RobotMain:
         return DescentResult(dropped, read_found, height_at_read)
 
     def smart_pick(self):
+        """Search-descend at the pick pose until suction grabs a card; return True/False."""
         step_size = config.PICK_SEARCH_STEP_MM
         max_descent = config.PICK_SEARCH_MAX_MM
         suction_wait = 0.2

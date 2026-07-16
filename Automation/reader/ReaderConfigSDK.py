@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ReaderConfigSDK.py
-Author: Alfredo Romero Perez
-Direct USB HID reader configuration using rf IDEAS SDK.
-No RRMTool_CLI required.
+ReaderConfigSDK.py — Direct USB HID WAVE ID reader configuration (no RRMTool).
 
-Usage:
-  python ReaderConfigSDK.py read
-  python ReaderConfigSDK.py set-cepas
-  python ReaderConfigSDK.py set-card <card_type_name>
-  python ReaderConfigSDK.py about
-  python ReaderConfigSDK.py beep [count]
+Role
+    Standalone HID tool using rf IDEAS SDK-style reports. Independent of the
+    robot GUI/CLI path. Requires ``pip install hid`` (or hidapi).
 
-Requires: pip install hid
-Place in same folder as readerUsb.py, readerConfig.py, defaultConfig.py
+Inputs / side effects
+    USB HID open to ``VENDOR_ID`` / ``PRODUCT_ID`` from ``config``; about / read
+    / set-cepas / set-card / beep commands. Runs CLI dispatch on import
+    (no ``if __name__`` guard today).
+
+Usage (from Automation/)::
+
+  python reader/ReaderConfigSDK.py about
+  python reader/ReaderConfigSDK.py read
+  python reader/ReaderConfigSDK.py set-cepas
+  python reader/ReaderConfigSDK.py set-card <card_type_name>
+  python reader/ReaderConfigSDK.py beep [count]
 """
 
 import sys

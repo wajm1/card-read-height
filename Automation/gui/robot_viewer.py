@@ -1,13 +1,19 @@
-"""robot_viewer.py — serve the three.js Lite 6 mesh viewer locally and feed it
-live joint angles. Dependency-free (uses the stdlib http.server); the GUI stays
-Python-only. Read-only: the browser can never command the arm.
+"""Local HTTP three.js Lite 6 mesh viewer (browser) for the Tk GUI.
 
-Expected files under `root_dir` (default: a "viewer" folder beside gui.py):
-    lite6_viewer.html
-    lite6.urdf
-    meshes/visual/link_base.stl, link1.stl ... link6.stl
+Role
+    Dependency-free stdlib ``http.server`` that serves ``gui/viewer/`` assets
+    and a ``/joints`` JSON endpoint. Read-only: the browser never commands the arm.
 
-Usage from the GUI:
+Inputs
+    ``root_dir`` with ``lite6_viewer.html``, ``lite6.urdf``, and
+    ``meshes/visual/link_base.stl`` … ``link6.stl``. Joint angles (deg) via
+    ``set_joints``.
+
+Outputs / side effects
+    Binds a local TCP port (default 8765); opens a browser tab on request.
+
+Usage from the GUI::
+
     v = RobotViewerServer(root_dir)
     url = v.start()          # e.g. http://127.0.0.1:8765/
     v.open_in_browser()
@@ -80,6 +86,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class RobotViewerServer:
+    """Serve viewer assets and live joint angles to a browser tab."""
+
     def __init__(self, root_dir, host="127.0.0.1", port=8765):
         self.root_dir = os.path.abspath(root_dir)
         self.host = host
@@ -99,6 +107,7 @@ class RobotViewerServer:
         return all(os.path.isfile(os.path.join(self.root_dir, n)) for n in need)
 
     def start(self):
+        """Start the daemon HTTP server; return the viewer URL."""
         if self._httpd is not None:
             return self.url()
         httpd = ThreadingHTTPServer((self.host, self.port), _Handler)
@@ -114,6 +123,7 @@ class RobotViewerServer:
         return "http://{}:{}/".format(self.host, self.port)
 
     def set_joints(self, joints):
+        """Update the cached J1–J6 angles (degrees) served at ``/joints``."""
         with self.lock:
             for i in range(min(6, len(joints))):
                 self.joints[i] = float(joints[i])

@@ -1,5 +1,19 @@
 """GuiRobot — barcode wave + multi-angle read-height / tap-and-go orchestration.
 
+Role
+    GUI subclass of ``robot.move.RobotMain``. Adds barcode-scanner wiggle,
+    per-angle staging, zone-in measurement, flip, Tap-and-Go timing, Combined
+    runs, and abort/telemetry hooks used by ``app.App``.
+
+Inputs
+    ``XArmAPI`` arm handle (via ``RobotMain``); run config set on the instance
+    by the GUI (``cfg_cycles``, ``cfg_angles``, ``cfg_flip``, presets, etc.).
+
+Outputs / hardware side effects
+    Moves the Lite 6, operates suction, configures the WAVE ID reader via
+    RRMTool CLI, listens for barcode / credential wedge reads, appends result
+    rows for the GUI to CSV-export.
+
 Cut-and-paste extraction from gui.py (Phase 3). Motion / timing / poses /
 CSV behavior must stay identical to the pre-split monolith.
 """
@@ -102,6 +116,7 @@ class GuiRobot(RobotMain):
         return ok
 
     def init_gui(self):
+        """Initialize GUI-tunable run config defaults (cycles, angles, presets)."""
         self.cfg_cycles = 1
         self.cfg_run_id = 1                        # set per run by the GUI
         self.cfg_scans = FIXED_REMEASURES         # always 1 — hard-coded
@@ -1025,6 +1040,7 @@ class GuiRobot(RobotMain):
 
     # ---- abort (kill switch) ----
     def request_abort(self):
+        """Operator Stop: set abort flag, emergency-stop the arm, then clear fault latch."""
         self._stop_event.set()
         self.alive = False
         try:
@@ -1044,6 +1060,11 @@ class GuiRobot(RobotMain):
 
     # ---- run(): pick → scan → measure 4 angles → release ----
     def run(self):
+        """Read Height run: home → pick → scan/config → multi-angle zone-in → flip/drop.
+
+        Hardware side effects: joint/TCP motion, suction, reader HWG load, CSV rows
+        via ``self.on_result`` / print. Honors ``request_abort()``.
+        """
         try:
             print('>> Homing (fast)...')
             if not self._move_joint(config.HOME_ANGLE, 'home'):

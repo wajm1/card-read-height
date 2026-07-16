@@ -2,10 +2,16 @@
 """
 ReaderConfig.py — Scan a barcode, look up the card, configure the reader.
 
-No robot, no GUI. Loops: scan a card -> reader gets configured -> scan the next.
-Press Ctrl+C to quit.
+Role
+    Standalone loop with no robot and no GUI: each scanned barcode is looked up
+    in ``files/AllCards.csv`` and the matching HWG under ``files/hwg/`` is
+    loaded via RRMTool CLI.
 
-Run from Automation/:
+Inputs / side effects
+    USB barcode wedge; RRMTool_CLI configure. Ctrl+C to quit.
+
+Run from Automation/::
+
     python reader/ReaderConfig.py
 """
 
