@@ -28,7 +28,7 @@ Automation/
 ├── robot/
 │   ├── cardreadheight.py    # Main test runner (CLI entry point)
 │   ├── move.py              # RobotMain motion logic
-│   ├── cardheight.py        # Standalone height helper
+│   ├── tools/cardheight.py        # Standalone height helper
 │   └── test_settings.py     # Live-tunable test parameters
 │
 ├── logs/                # Runtime logs (git-ignored)
