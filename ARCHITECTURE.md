@@ -1,10 +1,12 @@
-# Architecture inventory (Phase 1)
+# Architecture inventory
 
 **Branch:** `refactor/gui-declutter`  
-**Scope:** read-only inventory of the working tree as of this document.  
-**Rule:** no deletions or moves until the deletion list below is explicitly approved.
+**Status:** Phases 1–3 complete (inventory, declutter, GUI modular split).  
+**Phase 4–5:** Documentation refreshed; see **[REFACTOR_NOTES.md](REFACTOR_NOTES.md)** for
+file moves, final tree, entry-path confirmation, and deferred follow-ups.
 
-This document maps every Python module under `Automation/`, what imports what, which paths operators actually run, and what looks dead vs load-bearing.
+This document began as a Phase 1 read-only inventory. Sections below retain historical
+detail; where layout changed, prefer REFACTOR_NOTES and the current tree in §10 / post-tree.
 
 ---
 
@@ -27,7 +29,7 @@ Typical flow:
 
 ```
 card-read-height/
-├── README.md, docs/          ← operator docs (SETUP / USAGE / API / TROUBLESHOOTING)
+├── README.md, docs/, ARCHITECTURE.md, REFACTOR_NOTES.md
 ├── files/                    ← AllCards.csv, card_readers.json, hwg/*.hwg+
 ├── results/                  ← test CSVs (Keep/ curated)
 └── Automation/               ← all runnable Python (cwd for scripts)
@@ -40,21 +42,23 @@ card-read-height/
     │   └── ReaderConfigSDK.py← USB HID SDK CLI (no RRMTool)
     ├── robot/
     │   ├── move.py           ← RobotMain core motion library
-    │   ├── move2.py          ← experimental reverse characteriser
     │   ├── cardreadheight.py ← primary CLI test runner
-    │   ├── cardheight.py     ← interactive Z jogger (commissioning)
-    │   └── test_settings.py  ← CLI-tunable params object
-    └── gui/
-        ├── gui.py            ← primary Tk GUI (~3859 lines)
-        ├── arm_gl.py         ← embedded OpenGL STL viewer (USED)
-        ├── arm3d.py          ← matplotlib FK skeleton (IMPORTED, UNUSED)
-        ├── robot_viewer.py   ← browser three.js mesh server
-        ├── ros2_bridge.py    ← optional UDP→ROS2 process
-        ├── lite6.urdf, lite6_viewer.html   ← also copied under viewer/
-        └── viewer/meshes/visual/*.stl      ← required for Live arm / browser view
+    │   └── test_settings.py  ← CLI-tunable params (not used by GUI)
+    ├── gui/
+    │   ├── gui.py            ← thin entry (main)
+    │   ├── app.py            ← App shell
+    │   ├── gui_robot.py      ← GuiRobot
+    │   ├── constants.py, widgets.py
+    │   ├── arm_gl.py         ← embedded OpenGL STL viewer (optional)
+    │   ├── robot_viewer.py   ← browser three.js mesh server
+    │   └── viewer/meshes/visual/*.stl
+    └── tools/
+        ├── cardheight.py
+        ├── experimental/move2.py
+        └── ros2/ros2_bridge.py
 ```
 
-No `.py` files exist at the repo root.
+No `.py` files exist at the repo root (except none — docs only at root).
 
 ---
 
@@ -67,11 +71,11 @@ No `.py` files exist at the repo root.
 | `python reader/ReaderConfig.py` | Yes | Barcode → configure reader only |
 | `python reader/ReaderConfigSDK.py …` | Yes | HID about/read/set/beep (runs on load; no `__main__` guard) |
 | `python robot/move.py` | Library / API only | Has `__main__` but not in operator Run sections |
-| `python robot/move2.py` | **No** | Experimental reverse characteriser |
-| `python robot/cardheight.py` | Mentioned as helper | Interactive Z jog; runs on import |
-| `python gui/ros2_bridge.py` | Docstring only | Separate ROS2 env; receives GUI UDP |
+| `python tools/experimental/move2.py` | Dev-only | Experimental reverse characteriser |
+| `python tools/cardheight.py` | Commissioning | Interactive Z jog; runs on import |
+| `python tools/ros2/ros2_bridge.py` | Docstring / tools README | Separate ROS2 env; receives GUI UDP |
 
-Preserve signatures and these entry paths through the refactor.
+Preserve signatures and these entry paths through further work.
 
 ---
 
@@ -302,34 +306,35 @@ Automation/
       ros2_bridge.py
 ```
 
-Phase 3 next: split `gui.py` along the seams listed in §6 (no further tree moves required for declutter).
+Phase 3 complete: `gui.py` split along the seams in §6 into `constants`, `widgets`,
+`gui_robot`, and `app` (thin `gui.py` entry). See **REFACTOR_NOTES.md**.
 
 ---
 
-## 11. Phase 2 COMPLETED
+## 11. Phase 2 COMPLETED / Phase 3 COMPLETED
 
-Phase 1 wait-state questions are resolved. Phase 2 outcomes (see also §8):
+Phase 1 wait-state questions are resolved. Phase 2 outcomes (see also §8). Phase 3
+GUI modular split landed on this branch (`constants` → `widgets` → `gui_robot` → `app`).
 
-1. `arm3d.py` — **DELETED** (never tracked); `gui.py` import cleanup present in working tree only (not committed with Phase 2 due to large pre-existing dirty diff).
-2. `move2.py` — **QUARANTINED** to `tools/experimental/move2.py`.
-3. `cardheight.py` — **MOVED** to `tools/cardheight.py`.
-4. `ros2_bridge.py` — **MOVED** to `tools/ros2/ros2_bridge.py`.
-5. Duplicate lite6 assets — **DEDUPED**; only `gui/viewer/` remains.
-
-Next: Phase 3 (`gui.py` modular split) / Phase 4 (stale docs).
+Phase 4 refreshed operator docs and module docstrings. Phase 5 handoff:
+**[REFACTOR_NOTES.md](REFACTOR_NOTES.md)**.
 
 ---
 
-## Post-Phase-2 tree
+## Post-Phase-3 tree
 
 Paths relative to `Automation/` (`*.py`, `*.md`, `*.txt`, `*.html`, `*.urdf`, `*.stl`; excluding `__pycache__`):
 
 ```
 barcode/scanner.py
 config.py
+gui/app.py
 gui/arm_gl.py
+gui/constants.py
 gui/gui.py
+gui/gui_robot.py
 gui/robot_viewer.py
+gui/widgets.py
 gui/viewer/lite6.urdf
 gui/viewer/lite6_viewer.html
 gui/viewer/meshes/visual/link_base.stl
