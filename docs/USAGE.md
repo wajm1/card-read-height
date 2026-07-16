@@ -1,6 +1,6 @@
 # Usage
 
-How to run read-height tests, from the GUI or the command line.
+How to run read-height / tap-and-go tests, from the GUI or the command line.
 
 > Run all commands from the **`Automation/`** directory. The entry-point scripts add the
 > project root to `sys.path`, so `import config` and the package imports resolve correctly.
@@ -12,18 +12,22 @@ cd Automation
 python gui/gui.py
 ```
 
-The GUI (`gui/gui.py`):
+The GUI (`gui/gui.py` → `app.App` / `gui_robot.GuiRobot`):
 
 - Runs a **device checklist** (robot, reader, barcode scanner) as a startup gate.
-- Lets you set card count, scans-per-card, and descent speed, then **Run**.
-- Streams live status/log output and shows each card's read height as it completes.
-- **Exports** results to a CSV in `results/`.
+- Lets you choose **Read Height**, **Tap and Go**, or both (**Combined**), set card
+  count, angles, flip, and descent preset, then **Run**.
+- Streams live status/log output and shows each card's results as they complete.
+- **Exports** / autosaves results to CSV in `results/`.
+- Optional **Live arm** (OpenGL) and **browser mesh viewer** if assets/deps are present.
 
-You can also open the GUI from the runner: `python robot/cardreadheight.py --gui`.
+You can also open the GUI from the runner: `python robot/cardreadheight.py --gui`
+(imports `gui.gui.main`).
 
 ## Command line
 
-The main entry point is `robot/cardreadheight.py`:
+The main CLI entry point is `robot/cardreadheight.py` (parallel orchestrator to
+`GuiRobot` — not driven by GUI presets):
 
 ```bash
 cd Automation
@@ -52,6 +56,9 @@ python robot/cardreadheight.py --cycles 5 --scans 3 --ip 192.168.1.177
 python robot/cardreadheight.py --dry-run --reader-config
 ```
 
+CLI descent parameters live in `robot/test_settings.py` (`TestSettings`). The GUI
+does **not** import that module.
+
 ## Reader-only tools
 
 Configure the reader without the robot or GUI.
@@ -73,20 +80,29 @@ python reader/ReaderConfigSDK.py set-card TYPE   # configure for a named card ty
 python reader/ReaderConfigSDK.py beep [count]    # beep the reader
 ```
 
+## Optional tools
+
+```bash
+python tools/cardheight.py                 # interactive Z jogger (commissioning)
+python tools/experimental/move2.py         # reverse characteriser (dev-only)
+# In a ROS2 env (not the GUI Python):
+python tools/ros2/ros2_bridge.py --udp-port 9870
+```
+
 ## Output
 
 Results are written to **`results/`** (the repository-root `results/` folder) as
-timestamped CSVs, e.g. `2026-06-23_15-59-05_RDR-800x1BxU_read_heights.csv`. Each row
-captures timestamp, reader model, card name, barcode, side, and the measured read
-height. Curated results you want to keep in version control go in **`results/Keep/`**
-(everything else in `results/` is git-ignored).
+timestamped CSVs. Curated results you want to keep in version control go in
+**`results/Keep/`** (everything else in `results/` is git-ignored).
 
-## How a test run works
+HWG loads come from **`files/hwg/`**.
+
+## How a test run works (read-height)
 
 1. **Pick** — robot grips a card from the stack (`smart_pick`).
 2. **Scan** — it lifts and moves toward the scanner while listening for a barcode.
-3. **Identify** — the barcode is matched in `files/AllCards.csv`; the matching HWG+ file
-   is loaded to the reader.
-4. **Descend** — the robot lowers the card toward the reader side (A or B) in small
-   steps until a read is detected, or it hits the `READ_HEIGHT_MIN_MM` floor (a failure).
-5. **Record** — the read height is appended to the results CSV.
+3. **Identify** — the barcode is matched in `files/AllCards.csv`; the matching HWG+
+   under `files/hwg/` is loaded to the reader.
+4. **Measure** — GUI: multi-angle zone-in and/or tap-and-go; CLI: descend until read
+   or hit the `READ_HEIGHT_MIN_MM` floor (a failure).
+5. **Record** — results are appended to the results CSV (GUI may update AllCards averages).
