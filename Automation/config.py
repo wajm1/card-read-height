@@ -71,7 +71,7 @@ MOTION_JOINT_RADIUS = 60.0
 MOTION_POST_RELEASE_JOINT_RADIUS = 80.0
 MOTION_PICK_DESCENT_SPEED = 150
 MOTION_PICK_DESCENT_ACC = 2000
-POST_PICK_LIFT_MM = 50
+POST_PICK_LIFT_MM = 75  # clear the bin after grab (deeper bin needs ≥75 mm)
 POST_MOTION_PAUSE_S = 0.0
 # Barcode wiggle at scan pose
 WIGGLE_DEG = 4.0
@@ -86,13 +86,14 @@ ROBOT_SPEED_SCALE = 0.50
 ROBOT_DESCENT_SPEED_MM_S = 5.0
 ROBOT_TABLE_Z_FLOOR_MM = None
 ROBOT_PICK_Z_DECREMENT_MM = 2.0
-BIN_DEPTH_MM = 53.0
+BIN_DEPTH_MM = 71.0
 CARD_STACK_COUNT = 14
 
 TABLE_Z_MM = 59.81
 SMART_PICK_TABLE_Z_MM = 61.0
 PICK_SEARCH_STEP_MM = 3.0
-PICK_SEARCH_MAX_MM = 55.0
+# Max descent from pick pose into the bin (deeper bin — need ≥71 mm from pick height)
+PICK_SEARCH_MAX_MM = 71.0
 PICK_TABLE_CLEARANCE_MM = 2.0
 
 # Commissioned joint poses (degrees)
@@ -156,9 +157,10 @@ READ_HEIGHT_DESCENT_SPEED = 5
 READ_HEIGHT_DESCENT_ACC = 50
 READER_APPROACH_SPEED = 400
 READER_APPROACH_ACC = 3000
-# Fallback when no saved card average (mm above reader top) — approach start height
+# Approach start height above reader top (mm). Per-card AllCards baselines removed —
+# every card starts the zone-in search from this fixed clearance after MARK.
 READER_FALLBACK_SEARCH_ABOVE_READER_MM = 150.0
-# Bogus reference band: blank stored baselines ±10 mm of 70 (in-zone wedge reads)
+# Bogus reference band (legacy AllCards scrub helpers — unused by GUI runs now)
 READER_BAD_REFERENCE_BAND_LOW_MM = 60.0
 READER_BAD_REFERENCE_BAND_HIGH_MM = 80.0
 # Legacy exports (mm above table): arm stuck in zone reads this band above reader top
@@ -168,9 +170,9 @@ READER_INZONE_STUCK_HIGH_ABOVE_READER_MM = 32.0
 READER_CLEAR_AFTER_SIDE_ABOVE_READER_MM = 40.0
 # Before moving to release: minimum height above reader top to clear the read area
 READER_PRE_RELEASE_CLEARANCE_ABOVE_READER_MM = 50.0
-# Deprecated: was a relative lift from staging; GUI now uses saved averages + clearance
+# Deprecated: was a relative lift from staging; GUI uses fixed approach + MARK floor
 READER_DESCENT_START_LIFT_MM = 70.0
-# When a saved average exists: start this many mm above that avg (mm above reader top)
+# Legacy: clearance above a saved AllCards average (baselines no longer used)
 READER_APPROACH_CLEARANCE_MM = 15.0
 # Lowest allowed TCP height: this many mm above the table surface
 READER_DESCENT_MIN_HEIGHT_MM = 44.0

@@ -5,8 +5,9 @@ Role
     ``gui_robot``, ``app``, and ``widgets``. No hardware I/O.
 
 Inputs / outputs
-    Reads ``config`` defaults and optionally ``files/card_readers.json``
-    (via ``load_reader_library``). Exports brand colors, joint-limit helpers
+    Reads ``config`` defaults. Optional legacy ``files/card_readers.json`` is
+    loaded if present (MARK READER TOP is the source of truth for height).
+    Exports brand colors, joint-limit helpers
     (``nearest_j6_in_range``, ``joint_limit_issues``), CSV headers, and
     descent/Tap-and-Go pose constants.
 
@@ -168,7 +169,7 @@ FAST_TAP_DWELL_S = 0.04
 # J6 = 36.6° sits near the centre of the wrist range, so the move from any read
 # angle to the drop never approaches the ±360° limit (no C23). The drop uses
 # this pose exactly — all six joints, including the wrist.
-DROP_ANGLE = [-53.7, 66.7, 108.9, 0.5, 42.0, 36.6]
+DROP_ANGLE = [-54.2, 66.8, 108.9, 0.5, 41.9, 36.1]
 # Clear at least this far above the drop point before descending to it, so the
 # arm clears everything on the way over.
 DROP_CLEARANCE_MM = 40.0
@@ -188,11 +189,17 @@ DROP_HOVER_ANGLE = None
 # the starting orientation/position above the reader changes.
 READER_STAGING_0_ANGLE = [0.5, 13.6, 36.9, 0.1, 20.0, -270.8]
 
+# Card face parallel to a flat reader on the table (UFactory tool-down RPY:
+# roll = ±180°, pitch = 0°). Applied after every reader staging joint move so a
+# tilted taught pose cannot leave the card non-parallel during read-height.
+READER_PARALLEL_ROLL_DEG = 180.0
+READER_PARALLEL_PITCH_DEG = 0.0
+
 # ── Card pick pose (from the full stack) ────────────────────────────────────
 # Joint pose the arm moves to before descending into the stack for smart_pick().
 # Hand-jogged; overrides config.PICK_ANGLE. (This is the stack pick, NOT the
 # flip re-grab pose — that's FLIP_REGRAB_POSE.)
-PICK_ANGLE = [-43.5, 50.7, 72.8, 180.0, -20.4, -134.3]
+PICK_ANGLE = [-43.1, 47.0, 72.2, 180.0, -23.5, -133.9]
 
 # ── Flip station (optional "test both sides") ───────────────────────────────
 # When enabled, after side A is measured the card is placed in the flip fixture,
@@ -242,30 +249,69 @@ CALIB_MIN_ABOVE_TABLE_MM = 2.0
 # One row per card, four angles side-by-side. Averages grouped first (easy to
 # scan), then per-angle min/max, then per-angle scan counts.
 # ── Tap-and-Go test tuning ──
-# Fast plunge from the approach height straight down to the reference point
-# (card face at the calibrated reader top), then time how long the reader takes
-# to read. Read-only-safe: the plunge stops AT the calibrated floor, never below.
-# The Lite 6's max end-effector speed is 500 mm/s (hardware ceiling), so "faster"
-# means reaching that max before impact: high acceleration + extra drop runway.
+# Mirrors the UFactory Studio Blockly pattern (Lite 6 max TCP):
+#   repeat N times:          # N = GUI "Taps per angle" (cfg_scans)
+#     set TCP speed 500 / acc 50000
+#     relative −Z stroke     (Wait=false)
+#     wait DOWN_DWELL        # listen for credential wedge during this window
+#     relative +Z stroke     (Wait=false)
+#     wait UP_DWELL          # reader reset between taps
+# Timing is ms from down-move fire → wedge read (not arrival-at-floor).
+# Floor clamp: if a full stroke would go below MARK reader top (+ STOP gap),
+# the relative down is shortened to stop AT the floor and the matching up uses
+# that same distance — never crush the reader.
 TAPGO_DESCENT_SPEED_MM_S = 500.0     # Lite 6 hardware max TCP speed (can't exceed)
 TAPGO_DESCENT_ACC = 50000.0          # hard acceleration so it reaches max speed fast
-TAPGO_APPROACH_ABOVE_READER_MM = 100.0   # start this high above the reader (runway)
-TAPGO_RESET_DWELL_S = 0.5            # between taps: lift, wait for the reader to reset
-TAPGO_READ_TIMEOUT_S = 3.0           # wait at reference for a read before logging a miss
+TAPGO_STROKE_MM = 100.0              # relative ±Z stroke (Studio "move 100 mm")
+TAPGO_APPROACH_ABOVE_READER_MM = TAPGO_STROKE_MM  # start high enough for a full stroke
+TAPGO_DOWN_DWELL_S = 0.5             # fixed wait after firing the down move
+TAPGO_UP_DWELL_S = 1.0               # fixed wait after firing the up move (reader reset)
 TAPGO_STOP_ABOVE_FLOOR_MM = 0.0      # stop this far above reader top (0 = card touches)
+# Listen window equals the down dwell (Studio wait after down). Kept as a named
+# alias for CSV metadata / miss messages.
+TAPGO_READ_TIMEOUT_S = TAPGO_DOWN_DWELL_S
+# Back-compat alias (older code / docs referred to "reset dwell").
+TAPGO_RESET_DWELL_S = TAPGO_UP_DWELL_S
 
 TAPGO_CSV_HEADER = [
-    "Run", "Card #", "Side", "Angle", "Card Title", "Card Code",
+    "Run", "Card #", "Angle", "Card Title", "Card Code",
     "Taps", "Reads", "Misses", "Avg (ms)", "Min (ms)", "Max (ms)",
     "Tap times (ms)", "Error / Skip",
 ]
 
+# ── Deadzone test tuning ──
+# Ascend from MARK reader top (card touching) while the reader is in continuous
+# keyboard-wedge mode. Step/speed come from DESCENT_PRESETS (same Slowest–Fastest
+# as read-height). Distinguishing deadzone vs end-of-field (plain language):
+#   • Deadzone: reading stops for a few steps, then resumes while still ascending
+#     through the field. Logged height = first loss (mm above reader).
+#   • End of field / exit: reading stops and stays stopped for EOF_STEPS, OR the
+#     card reaches DEADZONE_MAX_ABOVE_READER_MM / max travel time. That final
+#     loss is NOT a deadzone — the card simply left the readable range.
+#   SEEKING → READING → GAP ─┬─ recover → deadzone recorded, back to READING
+#                            └─ EOF_STEPS misses → exit (done; not a deadzone)
+DEADZONE_GAP_CONFIRM_STEPS = 2   # min consecutive no-reads to treat as a real gap
+DEADZONE_EOF_STEPS = 10          # consecutive no-reads after a read → end of field
+DEADZONE_MAX_ABOVE_READER_MM = float(
+    getattr(config, "READER_FALLBACK_SEARCH_ABOVE_READER_MM", 150.0)
+)
+DEADZONE_MAX_TRAVEL_S = 180.0    # hard time cap so ascent never runs forever
+DEADZONE_DWELL_S = 0.40          # listen window per ascent step (> continuous lockout)
+DEADZONE_SETTLE_S = 0.05         # brief settle after each step before listening
+DEADZONE_FLOOR_READ_TIMEOUT_S = 3.0  # must see a continuous read at the floor first
+DEADZONE_CSV_HEADER = [
+    "Run", "Card #", "Angle", "Card Title", "Card Code",
+    "Deadzone found", "Deadzone height(s) mm", "Exit height mm", "Error / Skip",
+]
+
 CSV_DATA_HEADER = [
-    "Run", "Card #", "Side", "Card Title", "Card Code",
-    "0° Avg (mm)", "90° Avg (mm)", "180° Avg (mm)", "270° Avg (mm)",
-    "0° Min", "0° Max", "90° Min", "90° Max",
-    "180° Min", "180° Max", "270° Min", "270° Max",
-    "0° Scans", "90° Scans", "180° Scans", "270° Scans",
+    "Run", "Card #", "Card Title", "Card Code",
+    # ASCII "deg" (not °) so Excel on Windows never shows mojibake "Â°"
+    # Side is omitted — A/B is already encoded in Card Code (A### / B###).
+    "0 deg Avg (mm)", "90 deg Avg (mm)", "180 deg Avg (mm)", "270 deg Avg (mm)",
+    "0 deg Min", "0 deg Max", "90 deg Min", "90 deg Max",
+    "180 deg Min", "180 deg Max", "270 deg Min", "270 deg Max",
+    "0 deg Scans", "90 deg Scans", "180 deg Scans", "270 deg Scans",
     "Card Max (mm)", "Error / Skip",
 ]
 CSV_WIDTH = len(CSV_DATA_HEADER)
@@ -322,10 +368,11 @@ SAFETY_MARGIN_MM = 5.0          # legacy; descent floor is config.READER_DESCENT
 
 
 def load_reader_library(path=READER_HEIGHTS_PATH):
-    """Return (models, height_by_model) from card_readers.json.
+    """Optional legacy reader-height library (card_readers.json).
 
-    Falls back to config.READER_MODELS (heights unknown) if the file is
-    missing/unreadable so the GUI still launches.
+    Reader height for testing now comes from MARK READER TOP only. If the JSON
+    file is absent, return empty heights and the fixed READER_TYPES list is used
+    for the dropdown.
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -340,30 +387,42 @@ def load_reader_library(path=READER_HEIGHTS_PATH):
             heights[name] = float(h) if isinstance(h, (int, float)) else None
         if heights:
             return models, heights
+    except FileNotFoundError:
+        pass
     except Exception as e:
-        print("Reader library: falling back to config.READER_MODELS ({})".format(e))
+        print("Reader library ignored ({}): {}".format(path, e))
     base = list(getattr(config, "READER_MODELS", []))
     return base, {m: None for m in base}
 
 
 READER_LIBRARY, READER_HEIGHTS = load_reader_library()
-# Fixed dropdown: the five reader models + OTHER, regardless of what's enabled in
-# the library file. All are tested the same except NANO_USBA (special handling
-# to be added). Nominal heights still come from card_readers.json (used only as
-# a fallback when a reader hasn't been calibrated with MARK READER TOP).
+# Fixed dropdown — heights are captured live via MARK READER TOP, not from JSON.
 READER_TYPES = ["PICO", "HIP2_SP", "MICRO", "NANO_USBA", "MINI_DESKTOP", "OTHER"]
+
+# Nominal table-to-top heights (mm) kept in code so a run still works when
+# card_readers.json is absent. MARK READER TOP always overrides these.
+NOMINAL_READER_HEIGHTS_MM = {
+    "PICO": 25.0,
+    "HIP2_SP": 44.0,
+    "MICRO": 18.0,
+    "NANO_USBA": 40.0,
+    "MINI_DESKTOP": 40.0,
+}
 
 
 def _reader_height_for(name):
-    """Nominal reader height (mm) for a dropdown label, matched case-insensitively
-    against the card_readers.json library. None if unknown."""
+    """Nominal reader height (mm, table-to-top) for a dropdown label.
+
+    Order: optional card_readers.json → built-in nominal table → None (OTHER).
+    MARK READER TOP takes priority over both (handled by the caller).
+    """
     if not name:
         return None
     key = name.strip().upper()
     for k, v in READER_HEIGHTS.items():
-        if str(k).strip().upper() == key:
+        if str(k).strip().upper() == key and v is not None:
             return v
-    return None
+    return NOMINAL_READER_HEIGHTS_MM.get(key)
 
 
 def _default_reader_model():

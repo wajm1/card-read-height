@@ -1,12 +1,12 @@
-rf IDEAS €” Credential Read Height Test,,,,,,,,,,,,,,,,,,,,,,
+rf IDEAS â€” Credential Read Height Test,,,,,,,,,,,,,,,,,,,,,,
 Reader Type,HIP2_SP,Reader Model,HIP2_SP,,,,,,,,,,,,,,,,,,,
 Firmware,,,,,,,,,,,,,,,,,,,,,,
 Test speed,Slow,Final tap,0.5mm @ 10 mm/s,,,,,,,,,,,,,,,,,,,
-Read angles,"0°, 90°, 180°, 270°",,,,,,,,,,,,,,,,,,,,,
+Read angles,"0Â°, 90Â°, 180Â°, 270Â°",,,,,,,,,,,,,,,,,,,,,
 Comment,,,,,,,,,,,,,,,,,,,,,,
 Generated,Jul-13-2026 14:57:17,,,,,,,,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,,,,,,,,,
-Run,Card #,Side,Card Title,Card Code,0° Avg (mm),90° Avg (mm),180° Avg (mm),270° Avg (mm),0° Min,0° Max,90° Min,90° Max,180° Min,180° Max,270° Min,270° Max,0° Scans,90° Scans,180° Scans,270° Scans,Card Max (mm),Error / Skip
+Run,Card #,Side,Card Title,Card Code,0Â° Avg (mm),90Â° Avg (mm),180Â° Avg (mm),270Â° Avg (mm),0Â° Min,0Â° Max,90Â° Min,90Â° Max,180Â° Min,180Â° Max,270Â° Min,270Â° Max,0Â° Scans,90Â° Scans,180Â° Scans,270Â° Scans,Card Max (mm),Error / Skip
 1,1,A,CASI-RUSCO UID,B001,50,48.5,50.5,49,50,50,48.5,48.5,50.5,50.5,49,49,1,1,1,1,50.5,
 1,1,B,CASI-RUSCO UID,A001,48,48,48.5,48,48,48,48,48,48.5,48.5,48,48,1,1,1,1,48.5,
 1,2,A,HID Prox UID (608x),B003,48,47.5,48,47.5,48,48,47.5,47.5,48,48,47.5,47.5,1,1,1,1,48,

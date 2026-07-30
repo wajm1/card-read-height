@@ -1,9 +1,9 @@
-"""GuiRobot — barcode wave + multi-angle read-height / tap-and-go orchestration.
+"""GuiRobot — barcode wave + multi-angle read-height / tap-and-go / deadzone orchestration.
 
 Role
     GUI subclass of ``robot.move.RobotMain``. Adds barcode-scanner wiggle,
-    per-angle staging, zone-in measurement, flip, Tap-and-Go timing, Combined
-    runs, and abort/telemetry hooks used by ``app.App``.
+    per-angle staging, zone-in measurement, flip, Tap-and-Go timing, Deadzone
+    ascent, Combined runs, and abort/telemetry hooks used by ``app.App``.
 
 Inputs
     ``XArmAPI`` arm handle (via ``RobotMain``); run config set on the instance
@@ -47,12 +47,15 @@ from constants import (
     FAST_TAP_SPEED_MM_S, FAST_TAP_STEP_MM, FAST_TAP_DWELL_S,
     DROP_ANGLE, DROP_CLEARANCE_MM, DROP_HOVER_ANGLE,
     READER_STAGING_0_ANGLE, PICK_ANGLE,
+    READER_PARALLEL_ROLL_DEG, READER_PARALLEL_PITCH_DEG,
     FLIP_SET_DOWN_PATH, FLIP_RETRACT_LIFT_MM, FLIP_REGRAB_POSE, FLIP_GRAB_STROKE_MM,
     FLIP_JOINT_SPEED, FLIP_JOINT_ACC, FLIP_TCP_SPEED, FLIP_TCP_ACC,
     FLIP_GRAB_TCP_SPEED, FLIP_GRAB_TCP_ACC, FLIP_RELEASE_DWELL_S, FLIP_SETTLE_S,
     TAPGO_DESCENT_SPEED_MM_S, TAPGO_DESCENT_ACC, TAPGO_APPROACH_ABOVE_READER_MM,
     TAPGO_RESET_DWELL_S, TAPGO_READ_TIMEOUT_S, TAPGO_STOP_ABOVE_FLOOR_MM,
-    _parse_saved_avg,
+    DEADZONE_GAP_CONFIRM_STEPS, DEADZONE_EOF_STEPS,
+    DEADZONE_MAX_ABOVE_READER_MM, DEADZONE_MAX_TRAVEL_S,
+    DEADZONE_DWELL_S, DEADZONE_SETTLE_S, DEADZONE_FLOOR_READ_TIMEOUT_S,
     WIGGLE_DEG, WIGGLE_LIFT_DEG, WIGGLE_SPEED, WIGGLE_ACC, WIGGLE_PAUSE_S,
     SAFETY_MARGIN_MM,
 )
@@ -224,9 +227,14 @@ class GuiRobot(RobotMain):
         return max(0.0, min(allowed, config.READER_DESCENT_MAX_DROP_MM))
 
     # ---- wiggle override (barcode scan) ----
-    def _scan_barcode_and_config(self, timeout=20):
+    def _scan_barcode_and_config(self, timeout=30, *, continuous=False):
         """Wave (wrist turn + up/down) in front of the scanner while waiting
-        for a barcode, then configure the reader for the matched card."""
+        for a barcode, then configure the reader for the matched card.
+
+        ``continuous=True`` loads a short-lockout HWG patch so the reader keeps
+        emitting credential wedge events while the card stays in the field
+        (used by the Deadzone ascent test).
+        """
         ret = self._arm.get_servo_angle()
         base = list(ret[1]) if ret[0] == 0 else list(config.BARCODE_SCAN_ANGLE)
 
@@ -246,14 +254,18 @@ class GuiRobot(RobotMain):
             else:
                 print('>> Unknown barcode: {}'.format(barcode))
 
-        listener = BarcodeListener(on_barcode, tk_root=getattr(self, "tk_root", None))
+        listener = BarcodeListener(
+            on_barcode,
+            tk_root=getattr(self, "tk_root", None),
+            force_capture=True,
+        )
         listener.start()
         print('>> Waving (turn + up/down) in front of barcode scanner...')
 
-        deadline = time.monotonic() + timeout
-        # (J6 wrist turn, J2 lift) — turns AND waves up/down. Both are
-        # joint-space nudges relative to the scan pose, so there is NO
-        # Cartesian Z move and therefore no J5 speed/IK problem.
+        # Lengthen slightly — always-on-top GUI + wave motion needs headroom.
+        # force_capture=True so Comment/Cards focus cannot discard wedge keys.
+        # (Previously every scan was ignored while any Entry had focus.)
+        deadline = time.monotonic() + max(timeout, 30)
         moves = [
             ( WIGGLE_DEG,  WIGGLE_LIFT_DEG),   # turn one way, lift up
             (-WIGGLE_DEG, -WIGGLE_LIFT_DEG),   # turn other way, dip down
@@ -289,19 +301,11 @@ class GuiRobot(RobotMain):
             print('>> No valid barcode read.')
             return None
 
-        print('>> Configuring reader for {}...'.format(card.get('name', '?')))
-        ok = configure_reader_for_card(card, log_fn=print)
+        mode = " (continuous)" if continuous else ""
+        print('>> Configuring reader for {}{}...'.format(card.get('name', '?'), mode))
+        ok = configure_reader_for_card(card, log_fn=print, continuous=continuous)
         print('>> Reader configured.' if ok else '>> Reader configuration FAILED.')
         self._current_card = card
-        ia = card.get("inline_avg")
-        oa = card.get("orthogonal_avg")
-        if ia is not None or oa is not None:
-            print(
-                ">>   Saved heights (above reader): inline={}, orthogonal={}".format(
-                    "{:.2f}mm".format(ia) if ia is not None else "—",
-                    "{:.2f}mm".format(oa) if oa is not None else "—",
-                )
-            )
         return card
 
     @staticmethod
@@ -321,7 +325,7 @@ class GuiRobot(RobotMain):
         return ret[1][2] - TABLE_Z
 
     def _fresh_card_data(self):
-        """Reload card row from AllCards.csv (includes latest averages)."""
+        """Reload card row from AllCards.csv (name / HWG / side)."""
         barcode = (self._current_card or {}).get("barcode") or self._last_barcode
         if barcode:
             card = lookup_card(barcode)
@@ -330,46 +334,37 @@ class GuiRobot(RobotMain):
                 return card
         return self._current_card or {}
 
-    def _saved_avg_above_reader(self, orientation):
-        """Saved average read height (mm above reader) for this orientation."""
-        card = self._fresh_card_data()
-        key = "inline_avg" if orientation.lower().startswith("inline") else "orthogonal_avg"
-        return _parse_saved_avg(card.get(key))
+    def _assumed_reader_height(self):
+        """Reader top (mm above table) to plan approaches against.
+
+        MARK READER TOP / nominal library value when known. Otherwise fall back
+        to the descent floor so a run still executes instead of skipping every
+        card — the floor already protects the reader.
+        """
+        reader_h = self.cfg_reader_height
+        if reader_h is not None:
+            return reader_h
+        floor = self._reader_floor_above_table()
+        if floor is None:
+            return None
+        if not getattr(self, "_warned_assumed_reader_h", False):
+            print(">>   Reader height not calibrated — assuming reader top = "
+                  "{:.1f}mm above table (descent floor). Run MARK READER TOP "
+                  "for accurate heights.".format(floor))
+            self._warned_assumed_reader_h = True
+        return floor
 
     def _approach_start_above_reader(self):
         """Height above reader to start the fast locate (mm above reader top).
 
-        With no saved baseline (AllCards averages blank) this returns the
-        configured fallback — start well above the reader and locate quickly.
-        With a saved baseline it starts a small clearance above the tallest
-        saved average.
+        Fixed approach — AllCards no longer stores per-card read-height baselines.
         """
-        card = self._fresh_card_data()
-        refs = [
-            v for v in (
-                _parse_saved_avg(card.get("inline_avg")),
-                _parse_saved_avg(card.get("orthogonal_avg")),
-            )
-            if v is not None
-        ]
-        start_default = config.READER_FALLBACK_SEARCH_ABOVE_READER_MM
-        if not refs:
-            return (
-                start_default,
-                None,
-                "no saved avg — start {:.0f}mm above reader".format(start_default),
-            )
-
-        peak = max(refs)
-        clearance = config.READER_APPROACH_CLEARANCE_MM
-        start = max(peak + clearance, start_default)
-        if start > peak + clearance:
-            src = "saved max {:.2f}mm — start {:.0f}mm above reader (min {:.0f}mm)".format(
-                peak, start, start_default,
-            )
-        else:
-            src = "saved max {:.2f}mm + {:.0f}mm".format(peak, clearance)
-        return start, peak, src
+        start = float(config.READER_FALLBACK_SEARCH_ABOVE_READER_MM)
+        return (
+            start,
+            None,
+            "fixed {:.1f}mm above reader".format(start),
+        )
 
     def _move_joint(self, angle, label, *, speed=None, acc=None, radius=None, wait=True):
         """Joint move with optional corner blending for smooth transit.
@@ -427,10 +422,11 @@ class GuiRobot(RobotMain):
         return self._check_code(code, label)
 
     def _move_to_approach_for_orientation(self, orientation):
-        """Move TCP above reader using saved baseline + clearance (absolute Z)."""
-        reader_h = self.cfg_reader_height
+        """Move TCP above reader using the fixed approach clearance (absolute Z)."""
+        reader_h = self._assumed_reader_height()
         if reader_h is None:
-            print(">>   ERROR: reader height unknown — calibrate the reader (MARK READER TOP)")
+            print(">>   ERROR: reader top unknown and no descent floor — "
+                  "calibrate the reader (MARK READER TOP)")
             return False
 
         start_above_reader, peak_ref, src = self._approach_start_above_reader()
@@ -520,14 +516,59 @@ class GuiRobot(RobotMain):
         if tcp_height_above_table is None:
             return None
         card_above_table = config.card_face_above_table_from_tcp(tcp_height_above_table)
-        if self.cfg_reader_height is None:
+        reader_h = self._assumed_reader_height()
+        if reader_h is None:
             return card_above_table
-        return card_above_table - self.cfg_reader_height
+        return card_above_table - reader_h
 
     def _move_to_staging(self, pose, label):
-        return self._move_joint(
+        if not self._move_joint(
             pose, label, radius=config.MOTION_JOINT_RADIUS,
+        ):
+            return False
+        # Taught staging joints can leave the flange tilted (e.g. J5 ≠ tool-down).
+        # Force card parallel to the reader before approach / descent. A refused
+        # levelling move (IK / joint limit) must not abandon the measurement —
+        # the taught pose is still usable, just less parallel.
+        if not self._level_tool_parallel_to_reader():
+            print(">>   Continuing with the taught staging orientation.")
+        return True
+
+    def _level_tool_parallel_to_reader(self):
+        """Set roll/pitch so the card face is parallel to a flat table reader.
+
+        UFactory tool-down is roll=±180°, pitch=0°. Yaw (in-plane card angle)
+        is preserved. No-op if already within 0.5°.
+        """
+        ret = self._arm.get_position()
+        if ret[0] != 0 or not ret[1]:
+            print(">>   Level parallel — get_position failed ({})".format(ret[0]))
+            return False
+        x, y, z, roll, pitch, yaw = ret[1][:6]
+        want_roll = float(READER_PARALLEL_ROLL_DEG)
+        # ±180° are the same attitude; pick the nearer sign to avoid a long spin.
+        if abs((-want_roll) - roll) < abs(want_roll - roll):
+            want_roll = -want_roll
+        want_pitch = float(READER_PARALLEL_PITCH_DEG)
+        if abs(roll - want_roll) < 0.5 and abs(pitch - want_pitch) < 0.5:
+            print(">>   Tool already parallel to reader "
+                  "(R={:.1f}° P={:.1f}° Y={:.1f}°)".format(roll, pitch, yaw))
+            return True
+        print(
+            ">>   Leveling card parallel to reader: "
+            "R {:.1f}→{:.1f}°, P {:.1f}→{:.1f}° (yaw {:.1f}° kept)".format(
+                roll, want_roll, pitch, want_pitch, yaw,
+            )
         )
+        code = self._arm.set_position(
+            x=x, y=y, z=z,
+            roll=want_roll, pitch=want_pitch, yaw=yaw,
+            radius=0.0,
+            speed=min(float(self._tcp_speed), 80.0),
+            mvacc=self._tcp_acc,
+            wait=True,
+        )
+        return self._check_code(code, "level tool parallel to reader")
 
     def _lift_for_refine(self):
         """Rise above the last read point before the next zone-in tap."""
@@ -726,8 +767,9 @@ class GuiRobot(RobotMain):
         heights = []
         taps = self.cfg_taps
 
-        if scans > 1 and self.cfg_reader_height is None:
-            print('>> Warning: reader height not set — only the first scan will run.')
+        if self.cfg_reader_height is None:
+            print('>> Warning: reader height not calibrated — heights are '
+                  'relative to the assumed reader top. Use MARK READER TOP.')
 
         if not self._move_to_staging(pose, '{} orientation'.format(orientation)):
             return heights
@@ -956,12 +998,15 @@ class GuiRobot(RobotMain):
         print(">> FLIP — done, card flipped and re-picked")
         return True
 
-    def _goto_scan_barcode(self, cycle):
+    def _goto_scan_barcode(self, cycle, *, continuous=False):
         """Move to the barcode pose and scan + configure the reader.
 
         Returns (card_name, barcode) on success, or (None, None) on failure.
         Reusable per side, so a flip test re-scans the barcode before testing
         the back — the reader config must match the side currently facing out.
+
+        ``continuous=True`` enables short-lockout continuous wedge output
+        (Deadzone test).
         """
         self._progress(cycle, self.cfg_cycles, "Scanning barcode")
         if not self._move_joint(
@@ -969,17 +1014,17 @@ class GuiRobot(RobotMain):
             radius=config.MOTION_JOINT_RADIUS,
         ):
             return None, None
-        card = self._scan_barcode_and_config()
+        card = self._scan_barcode_and_config(continuous=continuous)
         if not card:
             return None, None
         return card.get('name'), self._last_barcode
 
     def _scan_and_measure(self, cycle, side_label=""):
         """Move to the barcode pose, scan + configure the reader, then measure
-        every selected angle for the side currently facing out.
+        every selected angle for the face currently facing out.
 
-        `side_label` is the Side value written to results — "A"/"B" only for a
-        flip test, otherwise blank (a single-side run has no meaningful side).
+        `side_label` is log-only ("A"/"B" for flip pass order). Results use
+        Card Code (A###/B###) — no Side column is written.
         Does NOT release the card — the caller decides whether to drop or flip.
         Returns (info_or_None, error_flag, angle_heights)."""
         self._progress(cycle, self.cfg_cycles, "Scanning barcode")
@@ -1239,7 +1284,7 @@ class GuiRobot(RobotMain):
         """
         name = barcode = card_face = None
         if card:
-            name, barcode, card_face = card
+            name, barcode = card[0], card[1]
 
         def stats(vals):
             if not vals:
@@ -1251,11 +1296,11 @@ class GuiRobot(RobotMain):
                 len(vals),
             )
 
+        # Side is not written — A/B is already in Card Code (A### / B###).
         row = {
             "kind": "read_height",
             "run": getattr(self, "cfg_run_id", 1),
             "card_num": idx,
-            "side": card_face or "",
             "card_title": name or "",
             "card_code": (barcode or "").upper(),
         }
@@ -1295,18 +1340,20 @@ class GuiRobot(RobotMain):
     def _tapgo_reference_above_table(self):
         """TCP height above table for the reference point (card face at the
         calibrated reader top, plus an optional gap)."""
-        if self.cfg_reader_height is None:
+        reader_h = self._assumed_reader_height()
+        if reader_h is None:
             return None
         return config.tcp_above_table_for_card_face(
-            self.cfg_reader_height + TAPGO_STOP_ABOVE_FLOOR_MM)
+            reader_h + TAPGO_STOP_ABOVE_FLOOR_MM)
 
     def _tapgo_approach_above_table(self):
         """TCP height above table for the tap start (card face high above reader
         to give runway to reach max speed)."""
-        if self.cfg_reader_height is None:
+        reader_h = self._assumed_reader_height()
+        if reader_h is None:
             return None
         return config.tcp_above_table_for_card_face(
-            self.cfg_reader_height + TAPGO_APPROACH_ABOVE_READER_MM)
+            reader_h + TAPGO_APPROACH_ABOVE_READER_MM)
 
     def _tapgo_measure_angle(self, angle, side_label=""):
         """Fast-tap this card at one angle `cfg_scans` times, timing each read.
@@ -1376,17 +1423,17 @@ class GuiRobot(RobotMain):
         return times, ""
 
     def _emit_tapgo_result(self, idx, card, times, side_label, angle, error_flag):
-        """Record one card/side/angle tap-and-go timing row."""
+        """Record one card/angle tap-and-go timing row (side_label is log-only)."""
         name = barcode = None
         if card:
             name, barcode = card[0], card[1]
         reads = [t for t in times if t is not None]
         misses = sum(1 for t in times if t is None)
+        # Side omitted — barcode (A###/B###) identifies the face.
         row = {
             "kind": "tap_and_go",
             "run": getattr(self, "cfg_run_id", 1),
             "card_num": idx,
-            "side": side_label or "",
             "angle": "{}°".format(angle) if angle is not None else "",
             "card_title": name or "",
             "card_code": (barcode or "").upper(),
@@ -1710,3 +1757,400 @@ class GuiRobot(RobotMain):
                 pass
             self._arm.disconnect()
             print('>> Arm disconnected. Done.')
+
+    # =====================================================================
+    # DEADZONE TEST  (continuous read + slow ascent from reader top)
+    # =====================================================================
+    def _deadzone_floor_above_table(self):
+        """TCP height above table with card face at the calibrated reader top."""
+        reader_h = self._assumed_reader_height()
+        if reader_h is None:
+            return None
+        return config.tcp_above_table_for_card_face(reader_h)
+
+    def _deadzone_height_above_reader(self):
+        """Current card-face height above reader top (mm), or None."""
+        h_table = self._height_above_table()
+        return self._read_height_above_reader(h_table)
+
+    def _deadzone_listen_step(self, listener, dwell_s):
+        """True if a credential wedge arrives within ``dwell_s``."""
+        if listener is None:
+            return False
+        listener.reset()
+        if DEADZONE_SETTLE_S > 0:
+            time.sleep(DEADZONE_SETTLE_S)
+        deadline = time.monotonic() + dwell_s
+        while time.monotonic() < deadline and self.is_alive:
+            if listener.read_detected():
+                return True
+            time.sleep(0.02)
+        return listener.read_detected()
+
+    def _deadzone_restore_reader(self, card):
+        """Reload the card's normal (non-continuous) HWG after a deadzone scan."""
+        if not card:
+            return
+        try:
+            configure_reader_for_card(card, log_fn=print, continuous=False)
+        except Exception as e:
+            print(">> Deadzone: restore reader config failed ({})".format(e))
+
+    def _deadzone_measure_angle(self, angle, side_label=""):
+        """Slow ascent from reader top; detect mid-field read gaps (deadzones).
+
+        The arm ALWAYS performs the slow stepped ascent — it never aborts just
+        because the card is silent at the floor (readers commonly need a small
+        air gap and won't read pressed flat). It seeks the first read on the
+        way up, then watches for a mid-field gap.
+
+        Deadzone vs end-of-field (plain language):
+          • Seeking — no read yet; keep climbing until the first read (entry).
+          • Deadzone — reads stop for ≥ GAP_CONFIRM_STEPS, then resume before
+            EOF_STEPS. The gap is inside the field; height = first loss (mm).
+          • Exit / end-of-field — reads stop and stay stopped for EOF_STEPS, OR
+            the card hits the max height / time cap. That final silence is NOT
+            logged as a deadzone (unless a gap-and-resume already happened).
+
+        Returns (result_dict, error_flag). result_dict keys:
+          deadzones (list mm), entry_height_mm, exit_height_mm, steps.
+        """
+        empty = {"deadzones": [], "entry_height_mm": "",
+                 "exit_height_mm": "", "steps": 0}
+        if CardReadListener is None:
+            print(">>   Deadzone: read listener unavailable.")
+            return empty, "NO LISTENER"
+        floor = self._deadzone_floor_above_table()
+        if floor is None:
+            print(">>   Deadzone: reader height unknown — calibrate first.")
+            return empty, "NO CALIB"
+
+        step = float(getattr(self, "cfg_final_step_mm", 1.0) or 1.0)
+        speed = float(getattr(self, "cfg_descent_speed", 18.0) or 18.0)
+        pose = self._staging_pose_for_angle(angle)
+        if not self._move_to_staging(pose, "deadzone staging {}°".format(angle)):
+            return empty, "MOVE FAIL"
+
+        # Approach from above, then settle onto the MARK floor (card touching).
+        if not self._move_to_approach_for_orientation("{}°".format(angle)):
+            return empty, "MOVE FAIL"
+        print(
+            ">>   Deadzone {}° — descend to reader top, then ascend "
+            "{:.1f}mm steps @ {:.1f} mm/s (preset {})".format(
+                angle, step, speed, getattr(self, "cfg_preset", "?"),
+            )
+        )
+        if not self._move_to_height_above_table(
+                floor, "deadzone floor {}°".format(angle),
+                speed=min(speed * 2.0, 40.0),
+                acc=config.READ_HEIGHT_DESCENT_ACC):
+            return empty, "MOVE FAIL"
+
+        listener = CardReadListener(tk_root=getattr(self, "tk_root", None))
+        listener.start()
+        deadzones = []
+        exit_h = None
+        entry_h = None          # first height where the card actually read
+        steps = 0
+        # SEEKING until the first continuous read. We DO NOT abort if the card
+        # is silent at the floor — many readers need a small air gap and won't
+        # read while the card is pressed flat against them. Instead we keep
+        # ascending slowly and look for the first read on the way up.
+        state = "SEEKING"
+        miss_streak = 0
+        loss_height = None
+        ever_read = False
+        t0 = time.monotonic()
+        err = ""
+
+        try:
+            # One listen at the floor to seed the state — but never fatal.
+            got = self._deadzone_listen_step(
+                listener, DEADZONE_FLOOR_READ_TIMEOUT_S)
+            if got:
+                state = "READING"
+                ever_read = True
+                entry_h = self._deadzone_height_above_reader()
+                print(">>   Deadzone {}°: reading at floor{} — ascending".format(
+                    angle,
+                    "" if entry_h is None else " ({:.2f}mm above reader)".format(entry_h),
+                ))
+            else:
+                print(
+                    ">>   Deadzone {}°: no read at floor — ascending slowly to "
+                    "seek the first read.".format(angle)
+                )
+
+            # Always perform the slow stepped ascent, regardless of the floor
+            # read. SEEKING climbs until the first read; READING/GAP then map
+            # any mid-field deadzone.
+            while self.is_alive and not err:
+                if (time.monotonic() - t0) >= DEADZONE_MAX_TRAVEL_S:
+                    exit_h = self._deadzone_height_above_reader()
+                    print(">>   Deadzone {}°: max travel time — exit at {:.2f}mm".format(
+                        angle, exit_h if exit_h is not None else -1))
+                    break
+
+                cur = self._deadzone_height_above_reader()
+                if cur is not None and cur >= DEADZONE_MAX_ABOVE_READER_MM:
+                    exit_h = cur
+                    print(">>   Deadzone {}°: max height {:.1f}mm — exit".format(
+                        angle, DEADZONE_MAX_ABOVE_READER_MM))
+                    break
+
+                # One ascent step (same step/speed as read-height final preset).
+                code = self._arm.set_position(
+                    z=step, radius=0,
+                    speed=speed, mvacc=config.READ_HEIGHT_DESCENT_ACC,
+                    relative=True, wait=True,
+                )
+                if not self._check_code(code, "deadzone ascent step"):
+                    err = "MOVE FAIL"
+                    break
+                steps += 1
+                cur = self._deadzone_height_above_reader()
+                got = self._deadzone_listen_step(listener, DEADZONE_DWELL_S)
+
+                if got:
+                    if not ever_read:
+                        ever_read = True
+                        entry_h = cur
+                        print(">>   Deadzone {}°: first read at {:.2f}mm above "
+                              "reader".format(
+                                  angle, entry_h if entry_h is not None else -1))
+                    if state == "GAP" and loss_height is not None:
+                        # Resume after a confirmed gap → this IS a deadzone.
+                        dz = round(loss_height, 2)
+                        deadzones.append(dz)
+                        print(
+                            ">>   Deadzone {}°: GAP→READ — deadzone at "
+                            "{:.2f}mm above reader".format(angle, dz)
+                        )
+                    state = "READING"
+                    miss_streak = 0
+                    loss_height = None
+                    continue
+
+                # No read this step.
+                miss_streak += 1
+                if state == "SEEKING":
+                    # Haven't entered the readable field yet — keep climbing.
+                    continue
+                if state == "READING":
+                    if miss_streak == 1:
+                        loss_height = cur  # first loss height (mm above reader)
+                    if miss_streak >= DEADZONE_GAP_CONFIRM_STEPS:
+                        state = "GAP"
+                        print(
+                            ">>   Deadzone {}°: read lost near {:.2f}mm "
+                            "(gap pending)".format(
+                                angle, loss_height if loss_height is not None else -1)
+                        )
+                elif state == "GAP":
+                    if miss_streak >= DEADZONE_EOF_STEPS:
+                        # Sustained silence → left the field (NOT a deadzone).
+                        exit_h = loss_height if loss_height is not None else cur
+                        print(
+                            ">>   Deadzone {}°: end of field at {:.2f}mm "
+                            "(no resume — not a deadzone)".format(
+                                angle, exit_h if exit_h is not None else -1)
+                        )
+                        break
+
+            if exit_h is None and not err:
+                exit_h = self._deadzone_height_above_reader()
+            if not ever_read and not err:
+                # Climbed the full range and the card never read at any height.
+                print(">>   Deadzone {}°: no read at any height (0–{:.0f}mm).".format(
+                    angle, DEADZONE_MAX_ABOVE_READER_MM))
+                err = "NO READ"
+        finally:
+            try:
+                listener.stop()
+            except Exception:
+                pass
+
+        self._clear_reader_after_side()
+        result = {
+            "deadzones": deadzones,
+            "entry_height_mm": "" if entry_h is None else round(entry_h, 2),
+            "exit_height_mm": "" if exit_h is None else round(exit_h, 2),
+            "steps": steps,
+        }
+        return result, err
+
+    def _emit_deadzone_result(self, idx, card, angle, result, error_flag):
+        """Record one card/angle deadzone row for CSV / live UI."""
+        name = barcode = None
+        if card:
+            name, barcode = card[0], card[1]
+        deadzones = list((result or {}).get("deadzones") or [])
+        found = "Y" if deadzones else "N"
+        heights_txt = (
+            ", ".join("{:.2f}".format(h) for h in deadzones) if deadzones else ""
+        )
+        row = {
+            "kind": "deadzone",
+            "run": getattr(self, "cfg_run_id", 1),
+            "card_num": idx,
+            "angle": "{}°".format(angle) if angle is not None else "",
+            "card_title": name or "",
+            "card_code": (barcode or "").upper(),
+            "deadzone_found": found,
+            "deadzone_heights_mm": heights_txt,
+            "exit_height_mm": (result or {}).get("exit_height_mm", ""),
+            "error_skip": error_flag or "",
+        }
+        self.results.append(row)
+        if self._on_result:
+            self._on_result(row)
+
+    def _deadzone_measure_side(self, idx, card_name, barcode, side_label):
+        """Deadzone-scan every selected angle for the face currently out."""
+        card = getattr(self, "_current_card", None)
+        for angle in self.cfg_angles:
+            if not self.is_alive:
+                break
+            self._progress(
+                self._cur_cycle, self.cfg_cycles,
+                "Deadzone {}°{}".format(
+                    angle,
+                    " (side {})".format(side_label) if side_label else "",
+                ),
+            )
+            result, err = self._deadzone_measure_angle(angle, side_label)
+            self._emit_deadzone_result(
+                idx, (card_name, barcode), angle, result, err,
+            )
+        # Restore normal (non-continuous) lockout after the side is done.
+        self._deadzone_restore_reader(card)
+
+    def run_deadzone(self):
+        """Deadzone run: pick → scan/config continuous → touch reader → slow ascent."""
+        try:
+            print('>> Homing (fast)...')
+            if not self._move_joint(config.HOME_ANGLE, 'home'):
+                return
+            print(
+                '>> Home reached. Deadzone on {} card(s) — continuous read, '
+                'ascend from reader top (preset {}, {:.1f}mm @ {:.1f} mm/s).'.format(
+                    self.cfg_cycles,
+                    getattr(self, "cfg_preset", "?"),
+                    float(getattr(self, "cfg_final_step_mm", 1.0) or 1.0),
+                    float(getattr(self, "cfg_descent_speed", 18.0) or 18.0),
+                )
+            )
+            print(
+                '>> Deadzone rule: gap+resume = deadzone at first loss; '
+                'sustained no-read ({} steps) / max {:.0f}mm / {:.0f}s = exit '
+                '(not a deadzone).'.format(
+                    DEADZONE_EOF_STEPS, DEADZONE_MAX_ABOVE_READER_MM,
+                    DEADZONE_MAX_TRAVEL_S,
+                )
+            )
+
+            for i in range(self.cfg_cycles):
+                if not self.is_alive:
+                    break
+                self._cur_cycle = i + 1
+                self._progress(i + 1, self.cfg_cycles, "Picking card")
+                print('>> ─────────  Card {} of {} (Deadzone)  ─────────'.format(
+                    i + 1, self.cfg_cycles))
+                t1 = time.monotonic()
+
+                pick_z = None
+                pick_radius = (config.MOTION_POST_RELEASE_JOINT_RADIUS
+                               if i > 0 else config.MOTION_JOINT_RADIUS)
+                for attempt in range(self.cfg_retries):
+                    if not self.is_alive:
+                        break
+                    if not self._move_joint(PICK_ANGLE, 'move to pick', radius=pick_radius):
+                        break
+                    self._set_suction(True, wait=False, delay_sec=0)
+                    pick_z = self.smart_pick()
+                    if pick_z is not None:
+                        break
+                    print('>> Pick attempt {} failed.'.format(attempt + 1))
+                    self._set_suction(False, wait=False, delay_sec=0)
+
+                if pick_z is None:
+                    print('>> Skipping card {} (pick failed).'.format(i + 1))
+                    self._move_joint(config.HOME_ANGLE, 'home after pick fail',
+                                     radius=config.MOTION_JOINT_RADIUS)
+                    self._emit_deadzone_result(i + 1, None, None, {}, "PICK FAIL")
+                    continue
+
+                time.sleep(config.POST_MOTION_PAUSE_S)
+                code = self._arm.set_position(
+                    z=config.POST_PICK_LIFT_MM, radius=config.MOTION_TCP_RADIUS,
+                    speed=config.MOTION_TCP_SPEED, mvacc=config.MOTION_TCP_ACC,
+                    relative=True, wait=True)
+                if not self._check_code(code, 'lift'):
+                    break
+                time.sleep(config.POST_MOTION_PAUSE_S)
+                self._arm.set_state(0)
+
+                # Barcode + continuous HWG (short lockout for repeated wedge).
+                name, barcode = self._goto_scan_barcode(i + 1, continuous=True)
+                if barcode is None:
+                    print('>> No barcode — skipping, releasing card.')
+                    self._progress(i + 1, self.cfg_cycles, "Releasing card")
+                    self._release_card()
+                    self._emit_deadzone_result(i + 1, None, None, {}, "BARCODE FAIL")
+                    print('>> Card {} done in {:.1f}s'.format(i + 1, time.monotonic() - t1))
+                    continue
+
+                flip = bool(getattr(self, "cfg_flip", False))
+                self._deadzone_measure_side(
+                    i + 1, name, barcode, "A" if flip else "")
+
+                if flip and self.is_alive:
+                    self._ensure_clearance_above_reader()
+                    if self._flip_card():
+                        nameB, barcodeB = self._goto_scan_barcode(
+                            i + 1, continuous=True)
+                        if barcodeB is None:
+                            print('>> Side B: no barcode after flip.')
+                            self._emit_deadzone_result(
+                                i + 1, (name, barcode), None, {}, "BARCODE FAIL")
+                        else:
+                            self._deadzone_measure_side(i + 1, nameB, barcodeB, "B")
+                    else:
+                        print('>> Flip failed — recording FLIP FAIL for side B.')
+                        self._emit_deadzone_result(
+                            i + 1, (name, barcode), None, {}, "FLIP FAIL")
+
+                self._progress(i + 1, self.cfg_cycles, "Dropping card")
+                self._exit_reader_and_release()
+                print('>> Card {} done in {:.1f}s'.format(i + 1, time.monotonic() - t1))
+
+        except Exception as e:
+            print('>> MainException (deadzone): {}'.format(e))
+        finally:
+            try:
+                if self._stop_event.is_set():
+                    print('>> Abort — parking arm safely...')
+                    try:
+                        self._arm.clean_error(); self._arm.clean_warn(); self._arm.set_state(0)
+                    except Exception:
+                        pass
+                elif self._arm.error_code != 0 or (self._arm.state or 0) >= 4:
+                    self.diagnose_fault('end of deadzone run')
+                    print('>> Attempting one recovery so the arm can park...')
+                    try:
+                        self._arm.clean_error(); self._arm.clean_warn(); self._arm.set_state(0)
+                        time.sleep(0.3)
+                    except Exception:
+                        pass
+                if self._arm.error_code == 0 and (self._arm.state or 0) < 4:
+                    self._set_suction(False, wait=True, delay_sec=0)
+                    self._move_joint(config.HOME_ANGLE, 'park home',
+                                     radius=config.MOTION_JOINT_RADIUS)
+                else:
+                    print('>> Arm still faulted (error {}, state {}) — skipping park. '
+                          'NOTE: suction may still be holding a card. Clear the error in '
+                          'UFACTORY Studio (see the joint report above), then re-enable.'.format(
+                              self._arm.error_code, self._arm.state))
+            except Exception as e:
+                print('>> Park error: {}'.format(e))
+            self.alive = False

@@ -1,18 +1,18 @@
-"""Tk application shell for credential read-height / tap-and-go testing.
+"""Tk application shell for credential read-height / tap-and-go / deadzone testing.
 
 Role
-    Owns the device checklist, test-select (Read Height / Tap-and-Go / Combined),
-    main run panel, reader calibrator, CSV autosave/export, and hybrid browser
-    workcell view wiring. Instantiated by ``gui.main()``.
+    Owns the device checklist, test-select (Read Height / Tap-and-Go / Deadzone),
+    main run panel, reader calibrator, CSV autosave/export, and embedded Live
+    arm OpenGL view. Instantiated by ``gui.main()``.
 
 Inputs
     Operator selections (reader model, card count, angles, flip, descent preset).
-    Optional deps: ``robot_viewer`` (stdlib HTTP). ``arm_gl`` remains importable
-    but is not embedded in the main panel (browser view instead).
+    Optional deps: ``arm_gl`` (embedded Live arm; needs pyopengltk/PyOpenGL/numpy).
+    Optional ``robot_viewer`` remains for an external browser workcell if desired.
 
 Outputs / side effects
     Connects to Lite 6 via XArmAPI; drives ``GuiRobot`` test loops; writes CSVs
-    under workspace ``results/``; may push baselines into ``files/AllCards.csv``.
+    under workspace ``results/``. AllCards.csv is barcode → name/HWG lookup only.
     Emits optional UDP telemetry for ``tools/ros2/ros2_bridge.py``.
 """
 
@@ -36,22 +36,21 @@ if AUTOMATION_ROOT not in sys.path:
 import config
 from xarm.wrapper import XArmAPI
 from barcode.scanner import (
-    BarcodeListener, register_tk_text_input, update_all_cards_averages,
-    is_bad_reference_height, scrub_poisoned_card_baselines,
+    BarcodeListener, register_tk_text_input,
 )
 from reader.cli import check_reader, get_reader_info
 
-# Optional browser-based mesh viewer (three.js). Pure-stdlib server; no deps.
+# Optional EMBEDDED OpenGL mesh viewer (UFactory-Studio style Live arm pane).
+try:
+    import arm_gl
+except Exception:            # pragma: no cover
+    arm_gl = None
+
+# Optional browser-based mesh viewer (three.js) — fallback / external reopen.
 try:
     import robot_viewer
 except Exception:            # pragma: no cover
     robot_viewer = None
-
-# Optional EMBEDDED OpenGL mesh viewer — not used in the hybrid main panel.
-try:
-    import arm_gl  # noqa: F401
-except Exception:            # pragma: no cover
-    arm_gl = None
 
 from constants import (
     TELEMETRY_UDP_HOST, TELEMETRY_UDP_PORT, DEFAULT_IP, TABLE_Z,
@@ -61,9 +60,11 @@ from constants import (
     READER_STAGING_0_ANGLE,
     CALIB_STEP_PRESETS, CALIB_DEFAULT_STEP, CALIB_JOG_TCP_SPEED, CALIB_JOG_TCP_ACC,
     CALIB_STAGING_LIFT_MM, CALIB_MIN_ABOVE_TABLE_MM,
+    READER_PARALLEL_ROLL_DEG, READER_PARALLEL_PITCH_DEG,
     TAPGO_DESCENT_SPEED_MM_S, TAPGO_APPROACH_ABOVE_READER_MM,
     TAPGO_RESET_DWELL_S, TAPGO_READ_TIMEOUT_S,
-    TAPGO_CSV_HEADER, CSV_DATA_HEADER,
+    TAPGO_CSV_HEADER, CSV_DATA_HEADER, DEADZONE_CSV_HEADER,
+    DEADZONE_MAX_ABOVE_READER_MM, DEADZONE_EOF_STEPS,
     _csv_row,
     BRAND, FONT_H1, FONT_H2, FONT_BODY, FONT_SMALL, FONT_BTN, FONT_MONO,
     READER_TYPES,
@@ -71,6 +72,16 @@ from constants import (
 )
 from widgets import flat_button, section_label, dot, number_stepper
 from gui_robot import GuiRobot
+
+# Width of the fixed-width setup / calibration side panels. Helper text inside
+# them is wrapped against the panel's *measured* width (see App._autowrap), so
+# this only decides how many lines the copy takes, never whether it is legible.
+SETUP_PANEL_W = 380
+# Border + scrollbar + inner padding eaten by the panel before content starts;
+# only used as the pre-map estimate, the real width wins once Tk reports it.
+SETUP_PANEL_CHROME_W = 55
+# Space a Checkbutton spends on its indicator box before the text starts.
+CHECK_INDICATOR_W = 30
 
 
 class _TelemetryUDP:
@@ -115,7 +126,7 @@ class App:
         self.root.title("rf IDEAS — Credential Read Height Test")
         self.root.configure(bg=BRAND['bg'])
         self.root.geometry("1060x820")
-        self.root.minsize(480, 560)
+        self.root.minsize(760, 640)
         self.root._pass_keys_to_gui = False
         self._float_mode = False            # compact always-on-top on main panel
         try:
@@ -143,8 +154,9 @@ class App:
         self._calib_busy = False
         self._calib_capturing = False       # True while MARK is capturing (blocks jogs)
         # ── browser workcell view + optional ROS2 telemetry ──
-        self.selected_tests = ["read_height"]  # subset of ["read_height", "tap_and_go"]
-        self._viewer = None                 # RobotViewerServer (browser mesh view)
+        self.selected_tests = ["read_height"]  # subset of read_height / tap_and_go / deadzone
+        self._viewer = None                 # optional RobotViewerServer (browser)
+        self._arm_gl = None                 # embedded ArmGLViewer (Live arm pane)
         self._telem_udp = None              # _TelemetryUDP when streaming
         self._last_joints = None
         self._last_suction = False
@@ -245,19 +257,26 @@ class App:
         self.status_var.set(msg)
 
     def _clear_container(self):
+        self._arm_gl = None
         for w in self.container.winfo_children():
             w.destroy()
 
     def _set_float_mode(self, enabled):
-        """Compact always-on-top control panel (main) vs normal setup windows."""
+        """Larger main test window vs compact setup screens."""
         self._float_mode = bool(enabled)
         try:
-            self.root.attributes("-topmost", bool(enabled))
+            self.root.attributes("-topmost", False)
         except Exception:
             pass
         if enabled:
-            self.root.geometry("520x820")
-            self.root.minsize(480, 560)
+            # Wide enough for setup + embedded Live arm (UFactory-style) on the right.
+            self.root.geometry("1280x900")
+            self.root.minsize(1100, 740)
+            try:
+                self.root.update_idletasks()
+                self.root.lift()
+            except Exception:
+                pass
         else:
             self.root.geometry("1060x820")
             self.root.minsize(900, 600)
@@ -420,17 +439,24 @@ class App:
     def _has_tapgo(self):
         return "tap_and_go" in self.selected_tests
 
+    def _has_deadzone(self):
+        return "deadzone" in self.selected_tests
+
     def _tests_label(self):
         names = []
         if self._has_read_height():
             names.append("Read Height")
         if self._has_tapgo():
             names.append("Tap and Go")
+        if self._has_deadzone():
+            names.append("Deadzone")
         return " + ".join(names) if names else "Read Height"
 
     def show_test_select(self):
         """Pick which test(s) to run after the device checks pass. Tests can be
-        combined — tick both to run Read Height and Tap-and-Go on each card."""
+        combined — tick Read Height and Tap-and-Go together. Deadzone is
+        selectable alone (or with the others; when mixed, Deadzone runs alone
+        this release to avoid conflicting with Tap-and-Go motion work)."""
         self._set_float_mode(False)
         self._clear_container()
         wrap = tk.Frame(self.container, bg=BRAND['bg'])
@@ -443,9 +469,10 @@ class App:
 
         tk.Label(pad, text="Choose test(s)", font=FONT_H1, fg=BRAND['text'],
                  bg=BRAND['card']).pack(anchor=tk.W)
-        tk.Label(pad, text="Tick one or both. Every test scans the barcode and "
-                           "configures the reader first. Selecting both runs Read "
-                           "Height then Tap-and-Go on each card.",
+        tk.Label(pad, text="Tick one or more. Every test scans the barcode and "
+                           "configures the reader first. Read Height + Tap-and-Go "
+                           "run together on each card. Deadzone is best selected "
+                           "alone (continuous read + slow ascent from reader top).",
                  font=FONT_SMALL, fg=BRAND['purple'], bg=BRAND['card'],
                  justify="left", wraplength=460).pack(anchor=tk.W, pady=(2, 20))
 
@@ -453,6 +480,7 @@ class App:
         self._sel_vars = {
             "read_height": tk.BooleanVar(value=self._has_read_height()),
             "tap_and_go": tk.BooleanVar(value=self._has_tapgo()),
+            "deadzone": tk.BooleanVar(value=self._has_deadzone()),
         }
 
         def _refresh_card_styles():
@@ -504,11 +532,31 @@ class App:
             "reference point, then time how long the reader takes to read (ms). "
             "Repeats per card, optional flip, then drop.",
             "tap_and_go")
+        test_card(
+            "Deadzone",
+            "Put the reader in continuous read, place the card on the reader top, "
+            "then slowly ascend (same Slowest–Fastest speed presets as Read Height). "
+            "Records mid-field gaps where reading stops then resumes; leaving the "
+            "field is exit height, not a deadzone.",
+            "deadzone")
 
         def _continue():
-            chosen = [k for k in ("read_height", "tap_and_go") if self._sel_vars[k].get()]
+            chosen = [k for k in ("read_height", "tap_and_go", "deadzone")
+                      if self._sel_vars[k].get()]
             if not chosen:
                 return
+            # Prefer a clean Deadzone-only run when it is ticked with others —
+            # combined same-card Deadzone is not wired yet.
+            if "deadzone" in chosen and len(chosen) > 1:
+                messagebox.showinfo(
+                    "Deadzone",
+                    "Deadzone currently runs alone.\n\n"
+                    "Other tests were unchecked so this run is Deadzone only. "
+                    "Select Read Height / Tap and Go without Deadzone to run those.",
+                )
+                chosen = ["deadzone"]
+                self._sel_vars["read_height"].set(False)
+                self._sel_vars["tap_and_go"].set(False)
             self.selected_tests = chosen
             self.show_main()
 
@@ -536,7 +584,7 @@ class App:
         main.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
         # ---- left: setup (scrollable so it fits any screen height) ----
-        left = tk.Frame(main, bg=BRAND['card'], width=240, highlightthickness=1,
+        left = tk.Frame(main, bg=BRAND['card'], width=SETUP_PANEL_W, highlightthickness=1,
                         highlightbackground=BRAND['divider'])
         left.pack(side=tk.LEFT, fill=tk.Y)
         left.pack_propagate(False)
@@ -582,7 +630,7 @@ class App:
         setup_canvas.bind("<Leave>", _unbind_wheel)
 
         inner = tk.Frame(pad, bg=BRAND['card'])
-        inner.pack(fill=tk.BOTH, expand=True, padx=22, pady=18)
+        inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=18)
         pad = inner   # everything below packs into the padded inner frame
 
         section_label(pad, "Test setup").pack(anchor=tk.W)
@@ -611,10 +659,13 @@ class App:
         ).grid(row=1, column=0, sticky="w", padx=(0, 14), pady=(2, 0))
         has_rh = self._has_read_height()
         has_tg = self._has_tapgo()
+        has_dz = self._has_deadzone()
         if has_rh and has_tg:
             _taps_hint = "(read-height averages + tap-and-go timings, per angle)"
         elif has_tg:
             _taps_hint = "(fast taps timed per angle, per side)"
+        elif has_dz:
+            _taps_hint = "(unused for Deadzone — ascent uses Test speed preset)"
         else:
             _taps_hint = "(recorded measurements averaged per angle)"
         tk.Label(grid, text="Taps per angle", font=FONT_SMALL, fg=BRAND['text'],
@@ -622,13 +673,17 @@ class App:
         number_stepper(
             grid, self.scans_var, self.root, minimum=1, maximum=50, step=1, width=4,
         ).grid(row=1, column=1, sticky="w", pady=(2, 0))
-        tk.Label(grid, text=_taps_hint,
-                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card']).grid(
-                     row=2, column=0, columnspan=2, sticky="w", pady=(3, 0))
+        taps_hint = tk.Label(grid, text=_taps_hint, font=FONT_SMALL, fg=BRAND['subtle'],
+                             bg=BRAND['card'], anchor="w", justify="left")
+        taps_hint.grid(row=2, column=0, columnspan=2, sticky="we", pady=(3, 0))
+        grid.grid_columnconfigure(1, weight=1)
+        self._autowrap(pad, taps_hint)
 
-        # Read-height uses a descent-speed preset (controls the recorded taps).
-        if has_rh:
-            self._field(pad, "Test speed (read height)")
+        # Read-height / Deadzone use a descent-speed preset (step + speed).
+        if has_rh or has_dz:
+            self._field(pad, "Test speed{}".format(
+                " (read height / deadzone ascent)" if (has_rh and has_dz)
+                else (" (deadzone ascent)" if has_dz else " (read height)")))
             speed_combo = ttk.Combobox(
                 pad, textvariable=self.preset_var, values=list(DESCENT_PRESETS.keys()),
                 state="readonly", style="Brand.TCombobox", font=FONT_BODY,
@@ -637,29 +692,54 @@ class App:
             self.preset_hint = tk.Label(
                 pad, text=self._preset_hint(self.preset_var.get()),
                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
-                anchor="w", justify="left", wraplength=200,
+                anchor="w", justify="left",
             )
-            self.preset_hint.pack(anchor=tk.W, pady=(4, 0))
+            self.preset_hint.pack(fill=tk.X, pady=(4, 0))
+            self._autowrap(pad, self.preset_hint)
             speed_combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
 
         # Tap-and-Go plunges at max speed to the calibrated reference point.
         if has_tg:
             tk.Frame(pad, bg=BRAND['divider'], height=1).pack(fill=tk.X, pady=14)
             section_label(pad, "Tap and Go").pack(anchor=tk.W)
-            tk.Label(pad, text=("Plunges from ~{:.0f} mm above the reader at "
-                                "{:.0f} mm/s (Lite 6 max) to the reader top, then "
-                                "times the read (ms). Lifts and waits {:.1f}s between "
-                                "taps so the reader resets. Calibrate the reader first.".format(
-                                    TAPGO_APPROACH_ABOVE_READER_MM, TAPGO_DESCENT_SPEED_MM_S,
-                                    TAPGO_RESET_DWELL_S)),
-                     font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
-                     justify="left", wraplength=320).pack(anchor=tk.W, pady=(1, 0))
+            tg_desc = tk.Label(
+                pad,
+                text=("Plunges from ~{:.0f} mm above the reader at "
+                      "{:.0f} mm/s (Lite 6 max) to the reader top, then "
+                      "times the read (ms). Lifts and waits {:.1f}s between "
+                      "taps so the reader resets. Calibrate the reader first.".format(
+                          TAPGO_APPROACH_ABOVE_READER_MM, TAPGO_DESCENT_SPEED_MM_S,
+                          TAPGO_RESET_DWELL_S)),
+                font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
+                anchor="w", justify="left",
+            )
+            tg_desc.pack(fill=tk.X, pady=(1, 0))
+            self._autowrap(pad, tg_desc)
+
+        if has_dz:
+            tk.Frame(pad, bg=BRAND['divider'], height=1).pack(fill=tk.X, pady=14)
+            section_label(pad, "Deadzone").pack(anchor=tk.W)
+            dz_desc = tk.Label(
+                pad,
+                text=("Continuous read at the MARK reader top, then slow ascent. "
+                      "A deadzone is a mid-field gap (read stops, then resumes). "
+                      "Leaving the field ({} no-read steps or {:.0f} mm max) is "
+                      "exit height — not a deadzone. Calibrate first.".format(
+                          DEADZONE_EOF_STEPS, DEADZONE_MAX_ABOVE_READER_MM)),
+                font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
+                anchor="w", justify="left",
+            )
+            dz_desc.pack(fill=tk.X, pady=(1, 0))
+            self._autowrap(pad, dz_desc)
 
         # read-angle toggles (both tests present the card at each ticked angle)
         tk.Frame(pad, bg=BRAND['divider'], height=1).pack(fill=tk.X, pady=14)
         section_label(pad, "Read angles").pack(anchor=tk.W)
-        tk.Label(pad, text="Card rotation about its face — tick the angles to test.",
-                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card']).pack(anchor=tk.W, pady=(1, 6))
+        ang_desc = tk.Label(pad, text="Card rotation about its face — tick the angles to test.",
+                            font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
+                            anchor="w", justify="left")
+        ang_desc.pack(fill=tk.X, pady=(1, 6))
+        self._autowrap(pad, ang_desc)
         ang_row = tk.Frame(pad, bg=BRAND['card'])
         ang_row.pack(fill=tk.X)
         for a in READ_ANGLES:
@@ -675,18 +755,23 @@ class App:
         # flip toggle (test both sides)
         tk.Frame(pad, bg=BRAND['divider'], height=1).pack(fill=tk.X, pady=14)
         section_label(pad, "Both sides").pack(anchor=tk.W)
-        tk.Checkbutton(
+        flip_cb = tk.Checkbutton(
             pad, text="Flip test — after side A, flip the card and test side B",
             variable=self.flip_var,
             font=FONT_BODY, fg=BRAND['text'], bg=BRAND['card'],
             activebackground=BRAND['card'], activeforeground=BRAND['red'],
             selectcolor=BRAND['white'], highlightthickness=0, bd=0,
-            anchor="w", padx=2, wraplength=300, justify="left",
-        ).pack(anchor=tk.W, pady=(1, 0))
-        tk.Label(pad, text="Uses the flip fixture, then re-scans + tests the back "
-                           "before dropping.",
-                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
-                 wraplength=300, justify="left").pack(anchor=tk.W, pady=(2, 0))
+            anchor="w", padx=2, justify="left",
+        )
+        flip_cb.pack(fill=tk.X, pady=(1, 0))
+        # checkbuttons also spend width on the indicator box + its gap
+        self._autowrap(pad, flip_cb, inset=CHECK_INDICATOR_W)
+        flip_desc = tk.Label(pad, text="Uses the flip fixture, then re-scans + tests the back "
+                                       "before dropping.",
+                             font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
+                             anchor="w", justify="left")
+        flip_desc.pack(fill=tk.X, pady=(2, 0))
+        self._autowrap(pad, flip_desc)
 
         # gap before the action buttons
         tk.Frame(pad, bg=BRAND['card'], height=18).pack(fill=tk.X)
@@ -702,27 +787,37 @@ class App:
                                      fg=BRAND['purple'], bg=BRAND['card'], hover=BRAND['light'],
                                      font=FONT_SMALL, pady=6)
         self.calib_btn.pack(fill=tk.X, pady=(0, 6))
-        self.mesh_btn = flat_button(pad, "REOPEN 3D VIEW", self._open_mesh_viewer,
-                                    fg=BRAND['purple'], bg=BRAND['card'], hover=BRAND['light'],
-                                    font=FONT_SMALL, pady=6)
-        self.mesh_btn.pack(fill=tk.X, pady=(0, 6))
-        self.export_btn = flat_button(pad, "EXPORT CSV", self._on_export,
+        self.export_btn = flat_button(pad, "EXPORT CSV / EXCEL", self._on_export,
                                       fg=BRAND['text'], bg=BRAND['light'], hover=BRAND['divider'],
                                       font=FONT_SMALL, pady=6)
         self.export_btn.pack(fill=tk.X, pady=(0, 6))
-        tk.Checkbutton(
+        telem_cb = tk.Checkbutton(
             pad, text="Stream telemetry to ROS2 (UDP :{})".format(TELEMETRY_UDP_PORT),
             variable=self.telem_var, command=self._on_telem_toggle,
             font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
             activebackground=BRAND['card'], selectcolor=BRAND['white'],
-            highlightthickness=0, bd=0, anchor="w",
-        ).pack(fill=tk.X)
+            highlightthickness=0, bd=0, anchor="w", justify="left",
+        )
+        telem_cb.pack(fill=tk.X)
+        self._autowrap(pad, telem_cb, inset=CHECK_INDICATOR_W)
 
-        # ---- right: progress + log ----
-        right = tk.Frame(main, bg=BRAND['card'], highlightthickness=1,
-                         highlightbackground=BRAND['divider'])
+        # ---- right: Live arm (top) + progress / results ----
+        right = tk.Frame(main, bg=BRAND['bg'])
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(14, 0))
-        rp = tk.Frame(right, bg=BRAND['card'])
+
+        # Live arm — embedded OpenGL pane (UFactory Studio look)
+        view_card = tk.Frame(right, bg=BRAND['card'], highlightthickness=1,
+                             highlightbackground=BRAND['divider'])
+        view_card.pack(fill=tk.X, pady=(0, 10))
+        vp = tk.Frame(view_card, bg=BRAND['card'])
+        vp.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
+        section_label(vp, "Live arm").pack(anchor=tk.W)
+        self._mount_embedded_viewer(vp)
+
+        prog_card = tk.Frame(right, bg=BRAND['card'], highlightthickness=1,
+                             highlightbackground=BRAND['divider'])
+        prog_card.pack(fill=tk.BOTH, expand=True)
+        rp = tk.Frame(prog_card, bg=BRAND['card'])
         rp.pack(fill=tk.BOTH, expand=True, padx=18, pady=16)
 
         topr = tk.Frame(rp, bg=BRAND['card'])
@@ -744,17 +839,23 @@ class App:
         nb = ttk.Notebook(rp)
         nb.pack(fill=tk.BOTH, expand=True)
 
-        RH_COLS = ("card", "code", "side", "a0", "a90", "a180", "a270", "note")
-        RH_HEAD = {"card": "#", "code": "Barcode", "side": "Side",
+        RH_COLS = ("card", "code", "a0", "a90", "a180", "a270", "note")
+        RH_HEAD = {"card": "#", "code": "Barcode",
                    "a0": "0°", "a90": "90°", "a180": "180°", "a270": "270°", "note": "Note"}
-        RH_W = {"card": 34, "code": 64, "side": 36, "a0": 52, "a90": 52,
-                "a180": 52, "a270": 52, "note": 120}
-        TG_COLS = ("card", "code", "side", "ang", "reads", "avg", "min", "max", "note")
-        TG_HEAD = {"card": "#", "code": "Barcode", "side": "Side", "ang": "Angle",
+        RH_W = {"card": 34, "code": 72, "a0": 52, "a90": 52,
+                "a180": 52, "a270": 52, "note": 140}
+        TG_COLS = ("card", "code", "ang", "reads", "avg", "min", "max", "note")
+        TG_HEAD = {"card": "#", "code": "Barcode", "ang": "Angle",
                    "reads": "Reads", "avg": "Avg ms", "min": "Min ms",
                    "max": "Max ms", "note": "Note"}
-        TG_W = {"card": 30, "code": 58, "side": 34, "ang": 44, "reads": 44,
-                "avg": 52, "min": 48, "max": 48, "note": 96}
+        TG_W = {"card": 30, "code": 72, "ang": 44, "reads": 44,
+                "avg": 52, "min": 48, "max": 48, "note": 110}
+        DZ_COLS = ("card", "code", "ang", "found", "heights", "exit", "note")
+        DZ_HEAD = {"card": "#", "code": "Barcode", "ang": "Angle",
+                   "found": "DZ?", "heights": "Deadzone mm", "exit": "Exit mm",
+                   "note": "Note"}
+        DZ_W = {"card": 30, "code": 72, "ang": 44, "found": 40,
+                "heights": 90, "exit": 60, "note": 110}
 
         def _make_tree(cols, headers, widths):
             tab = tk.Frame(nb, bg=BRAND['card'])
@@ -765,7 +866,7 @@ class App:
             for c in cols:
                 tree.heading(c, text=headers[c])
                 tree.column(c, width=widths[c], minwidth=28,
-                            anchor=("w" if c in ("code", "note") else "center"),
+                            anchor=("w" if c in ("code", "note", "heights") else "center"),
                             stretch=(c == "note"))
             sb = ttk.Scrollbar(tw, orient="vertical", command=tree.yview)
             tree.configure(yscrollcommand=sb.set)
@@ -784,6 +885,10 @@ class App:
             tab, tree = _make_tree(TG_COLS, TG_HEAD, TG_W)
             nb.add(tab, text="Tap and Go")
             self.results_trees["tap_and_go"] = tree
+        if self._has_deadzone():
+            tab, tree = _make_tree(DZ_COLS, DZ_HEAD, DZ_W)
+            nb.add(tab, text="Deadzone")
+            self.results_trees["deadzone"] = tree
         # default alias for any legacy reference to a single tree
         self.results_tree = next(iter(self.results_trees.values()), None)
 
@@ -797,12 +902,84 @@ class App:
         nb.add(log_tab, text="Activity log")
 
         self.set_status("Ready — set parameters and press START")
-        # Hybrid layout: open the browser workcell view behind this float panel.
-        self.root.after(200, self._open_mesh_viewer)
+
+    def _mesh_dir(self):
+        return os.path.join(self._viewer_dir(), "meshes", "visual")
+
+    def _mount_embedded_viewer(self, parent):
+        """Place the OpenGL Live arm pane at the top of the right column."""
+        self._arm_gl = None
+        host = tk.Frame(parent, bg="#1b1d23", height=340)
+        host.pack(fill=tk.X, pady=(6, 0))
+        host.pack_propagate(False)
+
+        if arm_gl is None:
+            tk.Label(
+                host,
+                text="Embedded 3D viewer unavailable (arm_gl.py missing).",
+                fg="#C9C9D4", bg="#1b1d23", justify="center",
+            ).pack(expand=True)
+            return
+
+        viewer = arm_gl.ArmGLViewer(
+            host, self._mesh_dir(),
+            brand={"bg3d": "#1b1d23"},
+        )
+        viewer.frame.pack(fill=tk.BOTH, expand=True)
+        self._arm_gl = viewer
+        if self._last_joints:
+            try:
+                viewer.update(self._last_joints)
+            except Exception:
+                pass
+        if viewer.ok:
+            self.set_status("Live arm view embedded (drag to orbit, scroll to zoom)")
+        else:
+            self.set_status(
+                "Live arm needs: py -3 -m pip install pyopengltk PyOpenGL numpy"
+            )
+
+    @staticmethod
+    def _autowrap(container, widget, inset=6):
+        """Re-wrap ``widget``'s text against ``container``'s measured width.
+
+        A Label/Checkbutton whose requested width exceeds its parent is
+        *centred* by pack (and clipped by grid), so oversized helper text loses
+        characters off both edges. Recomputing wraplength on resize keeps every
+        line inside the panel at any panel width or DPI scaling.
+        """
+        targets = getattr(container, "_wrap_targets", None)
+        if targets is None:
+            targets = container._wrap_targets = []
+
+            def _apply(_e=None):
+                avail = container.winfo_width()
+                if avail <= 1:
+                    return
+                for w, ins in container._wrap_targets:
+                    want = max(120, avail - ins)
+                    try:
+                        if int(w.cget("wraplength")) != want:
+                            w.configure(wraplength=want)
+                    except tk.TclError:
+                        pass
+
+            container.bind("<Configure>", _apply, add="+")
+
+        targets.append((widget, inset))
+        # first pass before the panel is mapped, so nothing flashes over-wide
+        avail = container.winfo_width()
+        if avail <= 1:
+            avail = SETUP_PANEL_W - SETUP_PANEL_CHROME_W
+        widget.configure(wraplength=max(120, avail - inset))
+        return widget
 
     def _field(self, parent, text):
-        tk.Label(parent, text=text, font=FONT_SMALL, fg=BRAND['text'],
-                 bg=BRAND['card']).pack(anchor=tk.W, pady=(10, 2))
+        lbl = tk.Label(parent, text=text, font=FONT_SMALL, fg=BRAND['text'],
+                       bg=BRAND['card'], anchor="w", justify="left")
+        lbl.pack(fill=tk.X, pady=(10, 2))
+        self._autowrap(parent, lbl)
+        return lbl
 
     def _toggle_other(self, _e=None):
         if self.reader_type.get() == "OTHER":
@@ -819,9 +996,11 @@ class App:
         self._calib_reader_height = None
 
     def _effective_reader_height(self):
-        """Reader height (mm, table-to-top): the value captured by MARK READER
-        TOP if this reader was calibrated this session, otherwise the nominal
-        height from card_readers.json for the selected type."""
+        """Reader height (mm, table-to-top) from MARK READER TOP this session.
+
+        Optional legacy fallback: card_readers.json via _reader_height_for (None
+        when that file is absent).
+        """
         if self._calib_reader_height is not None:
             return self._calib_reader_height
         return _reader_height_for(self.reader_type.get())
@@ -928,7 +1107,6 @@ class App:
             values = (
                 row.get("card_num", ""),
                 row.get("card_code", ""),
-                row.get("side", ""),
                 row.get("angle", ""),
                 "{}/{}".format(row.get("reads", 0), row.get("taps", 0)),
                 cell(row.get("avg_ms")),
@@ -936,11 +1114,20 @@ class App:
                 cell(row.get("max_ms")),
                 note,
             )
+        elif kind == "deadzone":
+            values = (
+                row.get("card_num", ""),
+                row.get("card_code", ""),
+                row.get("angle", ""),
+                row.get("deadzone_found", "N"),
+                row.get("deadzone_heights_mm") or "—",
+                cell(row.get("exit_height_mm")),
+                note,
+            )
         else:
             values = (
                 row.get("card_num", ""),
                 row.get("card_code", ""),
-                row.get("side", ""),
                 cell(row.get("a0_avg")),
                 cell(row.get("a90_avg")),
                 cell(row.get("a180_avg")),
@@ -962,6 +1149,25 @@ class App:
             else:
                 self.passfail_lbl.config(text="{:.1f} ms".format(float(avg)), fg=BRAND['green'])
                 self.passfail_dot.itemconfig(self.passfail_dot._id, fill=BRAND['green'])
+            return
+        if row.get("kind") == "deadzone":
+            found = row.get("deadzone_found") == "Y"
+            exit_h = row.get("exit_height_mm")
+            note = row.get("error_skip") or ""
+            if note:
+                self.passfail_lbl.config(text=str(note)[:18], fg=BRAND['amber'])
+                self.passfail_dot.itemconfig(self.passfail_dot._id, fill=BRAND['amber'])
+            elif found:
+                self.passfail_lbl.config(text="DZ " + (row.get("deadzone_heights_mm") or ""),
+                                         fg=BRAND['amber'])
+                self.passfail_dot.itemconfig(self.passfail_dot._id, fill=BRAND['amber'])
+            elif exit_h not in ("", None):
+                self.passfail_lbl.config(
+                    text="exit {:.1f} mm".format(float(exit_h)), fg=BRAND['green'])
+                self.passfail_dot.itemconfig(self.passfail_dot._id, fill=BRAND['green'])
+            else:
+                self.passfail_lbl.config(text="—", fg=BRAND['border'])
+                self.passfail_dot.itemconfig(self.passfail_dot._id, fill=BRAND['border'])
             return
         mx = row.get("card_max")
         if mx == "" or mx is None:
@@ -1005,6 +1211,14 @@ class App:
             self.pbar['value'] = 0
         self.root.title("rf IDEAS — Running (0/{})".format(cycles))
         self.set_status("Verification run (1 card)..." if verify else "Test running...")
+        # Drop focus out of Comment/Cards/etc. so the barcode wedge is not
+        # treated as "typing in a text field" (which used to discard every scan).
+        try:
+            self.root._pass_keys_to_gui = False
+            self.root.focus_set()
+            self.root.focus_force()
+        except Exception:
+            pass
         self.worker = threading.Thread(target=self._run_worker, args=(cycles, verify), daemon=True)
         self.worker.start()
 
@@ -1061,8 +1275,12 @@ class App:
             robot.tk_root = self.root
             robot.cfg_tests = list(self.selected_tests)
             # legacy single-string field kept for any older reference
-            robot.cfg_test = ("tap_and_go" if self.selected_tests == ["tap_and_go"]
-                              else "read_height")
+            if self.selected_tests == ["tap_and_go"]:
+                robot.cfg_test = "tap_and_go"
+            elif self.selected_tests == ["deadzone"]:
+                robot.cfg_test = "deadzone"
+            else:
+                robot.cfg_test = "read_height"
             robot.cfg_cycles = cycles
             robot.cfg_run_id = self._run_id            # per-run id (see _on_start)
             robot.cfg_scans = max(1, self._spin_int(self.scans_var, 1))  # taps averaged per angle
@@ -1091,7 +1309,9 @@ class App:
             robot.start_telemetry(
                 lambda j, s=False: self._q.put(("telemetry", (j, s)))
             )
-            if self._has_read_height() and self._has_tapgo():
+            if self._has_deadzone():
+                robot.run_deadzone()
+            elif self._has_read_height() and self._has_tapgo():
                 robot.run_combined()
             elif self._has_tapgo():
                 robot.run_tap_and_go()
@@ -1161,7 +1381,12 @@ class App:
         rdir = self._results_dir()
         os.makedirs(rdir, exist_ok=True)
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        suffix = "tap_and_go" if kind == "tap_and_go" else "read_heights"
+        if kind == "tap_and_go":
+            suffix = "tap_and_go"
+        elif kind == "deadzone":
+            suffix = "deadzone"
+        else:
+            suffix = "read_heights"
         return os.path.join(rdir, "{}_{}_{}.csv".format(ts, self._reader_model_label(), suffix))
 
     def _tapgo_metadata_rows(self, robot):
@@ -1173,7 +1398,7 @@ class App:
         fw = (self.reader_info.get("Firmware Filename")
               or self.reader_info.get("USB-Firmware", ""))
         return [
-            ["rf IDEAS — Tap-and-Go Read-Time Test"],
+            ["rf IDEAS - Tap-and-Go Read-Time Test"],
             ["Reader Type", rtype, "Reader Model", model],
             ["Firmware", fw],
             ["Descent speed", "{:g} mm/s".format(TAPGO_DESCENT_SPEED_MM_S),
@@ -1189,11 +1414,47 @@ class App:
     def _tapgo_data_cells(row):
         """One tap-and-go row → flat cell list matching TAPGO_CSV_HEADER."""
         return [
-            row.get("run", 1), row.get("card_num", ""), row.get("side", ""),
+            row.get("run", 1), row.get("card_num", ""),
             row.get("angle", ""), row.get("card_title", ""), row.get("card_code", ""),
             row.get("taps", ""), row.get("reads", ""), row.get("misses", ""),
             row.get("avg_ms", ""), row.get("min_ms", ""), row.get("max_ms", ""),
             row.get("times_ms", ""), row.get("error_skip", ""),
+        ]
+
+    def _deadzone_metadata_rows(self, robot):
+        """Header/metadata block for a Deadzone results file."""
+        generated = datetime.now().strftime("%b-%d-%Y %H:%M:%S")
+        model = self._reader_model_label()
+        rtype = (self.reader_other.get().strip()[:40]
+                 if self.reader_type.get() == "OTHER" else self.reader_type.get())
+        fw = (self.reader_info.get("Firmware Filename")
+              or self.reader_info.get("USB-Firmware", ""))
+        return [
+            ["rf IDEAS - Deadzone Ascent Test"],
+            ["Reader Type", rtype, "Reader Model", model],
+            ["Firmware", fw],
+            ["Test speed", getattr(robot, "cfg_preset", ""),
+             "Ascent step", "{:g}mm @ {:g} mm/s".format(
+                 getattr(robot, "cfg_final_step_mm", 0),
+                 getattr(robot, "cfg_descent_speed", 0))],
+            ["EOF confirm", "{} no-read steps".format(DEADZONE_EOF_STEPS),
+             "Max height", "{:g} mm above reader".format(DEADZONE_MAX_ABOVE_READER_MM)],
+            ["Comment", self.comment_var.get()],
+            ["Generated", generated],
+            [],
+            list(DEADZONE_CSV_HEADER),
+        ]
+
+    @staticmethod
+    def _deadzone_data_cells(row):
+        """One deadzone row → flat cell list matching DEADZONE_CSV_HEADER."""
+        return [
+            row.get("run", 1), row.get("card_num", ""),
+            row.get("angle", ""), row.get("card_title", ""), row.get("card_code", ""),
+            row.get("deadzone_found", "N"),
+            row.get("deadzone_heights_mm", ""),
+            row.get("exit_height_mm", ""),
+            row.get("error_skip", ""),
         ]
 
     def _metadata_rows(self, robot):
@@ -1209,9 +1470,9 @@ class App:
             self.reader_info.get("Firmware Filename")
             or self.reader_info.get("USB-Firmware", "")
         )
-        angles_disp = ", ".join("{}°".format(a) for a in robot.cfg_angles)
+        angles_disp = ", ".join("{} deg".format(a) for a in robot.cfg_angles)
         return [
-            ["rf IDEAS — Credential Read Height Test"],
+            ["rf IDEAS - Credential Read Height Test"],
             ["Reader Type", rtype, "Reader Model", model],
             ["Firmware", fw],
             ["Test speed", robot.cfg_preset, "Final tap",
@@ -1229,7 +1490,6 @@ class App:
         return [
             row.get("run", 1),
             row.get("card_num", ""),
-            row.get("side", ""),
             row.get("card_title", ""),
             row.get("card_code", ""),
             row.get("a0_avg", ""), row.get("a90_avg", ""),
@@ -1250,10 +1510,13 @@ class App:
         self._live_csv_paths = {}
         for kind in self._robot_test_kinds(robot):
             path = self._results_path_for(robot, kind)
-            with open(path, "w", newline="", encoding="utf-8") as f:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
                 w = csv.writer(f)
                 if kind == "tap_and_go":
                     for r in self._tapgo_metadata_rows(robot):
+                        w.writerow(r)
+                elif kind == "deadzone":
+                    for r in self._deadzone_metadata_rows(robot):
                         w.writerow(r)
                 else:
                     for r in self._metadata_rows(robot):
@@ -1270,7 +1533,9 @@ class App:
         disk the instant it finishes, so a crash mid-run never loses prior
         cards.
         """
-        kind = "tap_and_go" if row.get("kind") == "tap_and_go" else "read_height"
+        kind = row.get("kind", "read_height")
+        if kind not in ("tap_and_go", "deadzone", "read_height"):
+            kind = "read_height"
         path = self._live_csv_paths.get(kind)
         if not path:
             return
@@ -1278,59 +1543,53 @@ class App:
             with open(path, "a", newline="", encoding="utf-8") as f:
                 if kind == "tap_and_go":
                     csv.writer(f).writerow(self._tapgo_data_cells(row))
+                elif kind == "deadzone":
+                    csv.writer(f).writerow(self._deadzone_data_cells(row))
                 else:
                     csv.writer(f).writerow(_csv_row(self._data_cells(row)))
         except Exception as e:
             self._log("Autosave write failed: {}".format(e))
 
     def _sync_all_cards_from_results(self, robot):
-        """Push result averages into AllCards.csv (values are mm above reader top).
+        """No-op: AllCards.csv is barcode → name/HWG only (no height baselines)."""
+        return 0
 
-        AllCards.csv currently stores two baseline columns (Inline / Orthogonal).
-        We map 0° -> Inline and 90° -> Orthogonal so the existing baseline
-        loader keeps working. 180°/270° are recorded in the results CSV.
-        """
-        updates = []
-        for row in robot.results:
-            if row.get("kind") == "tap_and_go":
-                continue   # timing rows carry no height baseline
-            if not row.get("card_code"):
-                continue
-            skip = (row.get("error_skip") or "").strip().upper()
-            if skip == "BARCODE FAIL":
-                continue
-            inline = row.get("a0_avg")     # 0°  -> Inline baseline
-            orth = row.get("a90_avg")      # 90° -> Orthogonal baseline
-            if is_bad_reference_height(inline):
-                inline = None
-            if is_bad_reference_height(orth):
-                orth = None
-            if inline in ("", None) and orth in ("", None):
-                continue
-            updates.append({
-                "card_code": row.get("card_code"),
-                "inline_avg": inline,
-                "orthogonal_avg": orth,
-            })
-        n = update_all_cards_averages(updates)
-        scrub_poisoned_card_baselines()
-        return n
+    def _write_formatted_xlsx(self, csv_path):
+        """Turn a read-heights CSV into the navy two-row Excel report. Returns path or None."""
+        tools_dir = os.path.join(AUTOMATION_ROOT, "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        try:
+            from format_results_xlsx import format_read_heights_csv
+        except ImportError as e:
+            msg = (">> Formatted Excel needs openpyxl ({}) — "
+                   "pip install openpyxl".format(e))
+            try:
+                self._q.put(("log", msg))
+            except Exception:
+                print(msg)
+            return None
+        xlsx = os.path.splitext(csv_path)[0] + "_Formatted.xlsx"
+        return format_read_heights_csv(csv_path, xlsx)
 
     def _auto_export(self, robot):
-        """End-of-run: rows are already on disk via autosave — just log the
-        path(s) and (when Read Height ran) push baselines into AllCards.csv."""
+        """End-of-run: log CSV path(s) and write the formatted Excel for read-height."""
+        labels = {
+            "tap_and_go": "Tap-and-Go",
+            "deadzone": "Deadzone",
+            "read_height": "Read-height",
+        }
         for kind, path in self._live_csv_paths.items():
             self._q.put(("log", ">> {} results saved -> {}".format(
-                "Tap-and-Go" if kind == "tap_and_go" else "Read-height", path)))
-        if "read_height" not in self._robot_test_kinds(robot):
-            return   # timing-only run — no AllCards baseline sync
-        if robot and robot.results:
-            n = self._sync_all_cards_from_results(robot)
-            if n:
-                self._q.put((
-                    "log",
-                    ">> AllCards.csv updated — {} card(s), 0°/90° baselines (mm above reader top)".format(n),
-                ))
+                labels.get(kind, kind), path)))
+            if kind != "read_height":
+                continue
+            try:
+                xlsx = self._write_formatted_xlsx(path)
+                if xlsx:
+                    self._q.put(("log", ">> Formatted Excel saved -> {}".format(xlsx)))
+            except Exception as e:
+                self._q.put(("log", ">> Excel format skipped ({})".format(e)))
 
     def _on_export(self):
         robot = self.robot or self._last_robot
@@ -1344,13 +1603,19 @@ class App:
             self._open_live_csv(robot)
             for row in robot.results:
                 self._append_live_row(row)
-        saved = "\n".join(self._live_csv_paths.values())
-        msg = "Saved:\n{}".format(saved)
-        if "read_height" in self._robot_test_kinds(robot):
-            n = self._sync_all_cards_from_results(robot)
-            if n:
-                msg += "\n\nAllCards.csv updated ({} card(s), mm above reader top)".format(n)
-        messagebox.showinfo("Export", msg)
+        lines = list(self._live_csv_paths.values())
+        rh = self._live_csv_paths.get("read_height")
+        if rh and os.path.isfile(rh):
+            try:
+                xlsx = self._write_formatted_xlsx(rh)
+                if xlsx:
+                    lines.append(xlsx)
+            except Exception as e:
+                messagebox.showwarning(
+                    "Excel format",
+                    "CSV saved, but Excel formatting failed:\n{}".format(e),
+                )
+        messagebox.showinfo("Export", "Saved:\n{}".format("\n".join(lines)))
 
     # =====================================================================
     # READER CALIBRATION (manual arrow-key jog)
@@ -1375,19 +1640,23 @@ class App:
         wrap.pack(fill=tk.BOTH, expand=True, padx=16, pady=14)
 
         # ---- left: live readout + capture ----
-        left = tk.Frame(wrap, bg=BRAND['card'], width=372, highlightthickness=1,
+        left = tk.Frame(wrap, bg=BRAND['card'], width=SETUP_PANEL_W, highlightthickness=1,
                         highlightbackground=BRAND['divider'])
         left.pack(side=tk.LEFT, fill=tk.Y)
         left.pack_propagate(False)
         lp = tk.Frame(left, bg=BRAND['card'])
-        lp.pack(fill=tk.BOTH, expand=True, padx=22, pady=18)
+        lp.pack(fill=tk.BOTH, expand=True, padx=18, pady=18)
 
         section_label(lp, "Reader calibration").pack(anchor=tk.W)
-        tk.Label(lp, text="Tool stays facing down. Jog over the reader, lower until\n"
-                          "the card just touches the top, then MARK READER TOP —\n"
-                          "captures the approach angle (position) AND the height/floor.",
-                 font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
-                 justify="left").pack(anchor=tk.W, pady=(2, 12))
+        calib_desc = tk.Label(
+            lp, text="Suction turns on at start — place a card on the cup. Tool stays "
+                     "facing down. Jog over the reader, lower until the card just "
+                     "touches the top, then MARK READER TOP — captures the approach "
+                     "angle (position) AND the height/floor.",
+            font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'],
+            anchor="w", justify="left")
+        calib_desc.pack(fill=tk.X, pady=(2, 12))
+        self._autowrap(lp, calib_desc)
 
         self.calib_status = tk.Label(lp, text="Connecting to arm…", font=FONT_BODY,
                                      fg=BRAND['amber'], bg=BRAND['card'], anchor="w")
@@ -1425,8 +1694,9 @@ class App:
         # capture (angle + height, one button)
         self.calib_height_lbl = tk.Label(lp, text="Reader: (not captured)",
                                          font=FONT_SMALL, fg=BRAND['text'], bg=BRAND['card'],
-                                         anchor="w", justify="left", wraplength=320)
+                                         anchor="w", justify="left")
         self.calib_height_lbl.pack(fill=tk.X, pady=(0, 4))
+        self._autowrap(lp, self.calib_height_lbl)
         flat_button(lp, "MARK READER TOP  (angle + height)", self._calib_mark_reader,
                     fg=BRAND['white'], bg=BRAND['red'], hover=BRAND['red_hover'],
                     font=FONT_SMALL, pady=8).pack(fill=tk.X, pady=(0, 8))
@@ -1444,8 +1714,9 @@ class App:
         rp.pack(expand=True)
 
         section_label(rp, "Jog  (arrow keys · W / S for height)").pack(pady=(20, 4))
-        tk.Label(rp, text="Buttons are labelled by robot axis — use whichever moves\n"
-                          "toward the reader. Tool orientation stays fixed (facing down).\n"
+        tk.Label(rp, text="Place a card on the suction cup first. Buttons are labelled\n"
+                          "by robot axis — use whichever moves toward the reader.\n"
+                          "Tool orientation stays fixed (facing down).\n"
                           "Jog down (S) until the card just touches the reader top,\n"
                           "then MARK READER TOP.",
                  font=FONT_SMALL, fg=BRAND['subtle'], bg=BRAND['card'], justify="center").pack(pady=(0, 16))
@@ -1454,49 +1725,105 @@ class App:
         pad4.pack()
 
         def jbtn(parent, text, dx=0.0, dy=0.0, dz=0.0, r=0, c=0):
-            b = flat_button(parent, text, lambda: self._calib_jog(dx, dy, dz),
+            def _click():
+                self._calib_jog(dx, dy, dz)
+                try:
+                    self.root.focus_force()
+                except Exception:
+                    pass
+            b = flat_button(parent, text, _click,
                             fg=BRAND['white'], bg=BRAND['purple'], hover="#3A3B6E",
                             font=FONT_BTN, pady=12)
             b.grid(row=r, column=c, padx=6, pady=6, sticky="nsew")
             return b
 
-        # XY pad (labelled by axis)
-        jbtn(pad4, "▲  +X", dx=1, r=0, c=1)
-        jbtn(pad4, "◀  −Y", dy=-1, r=1, c=0)
-        jbtn(pad4, "▼  −X", dx=-1, r=1, c=1)
-        jbtn(pad4, "▶  +Y", dy=1, r=1, c=2)
+        # XY pad — X (forward/back) and Y (left/right) inverted to match operator feel
+        jbtn(pad4, "▲  +X", dx=-1, r=0, c=1)
+        jbtn(pad4, "◀  −Y", dy=1, r=1, c=0)
+        jbtn(pad4, "▼  −X", dx=1, r=1, c=1)
+        jbtn(pad4, "▶  +Y", dy=-1, r=1, c=2)
         for i in range(3):
             pad4.grid_columnconfigure(i, minsize=90)
 
         zrow = tk.Frame(rp, bg=BRAND['card'])
         zrow.pack(pady=(18, 6))
+        # Height: W = up (+Z), S = down (−Z)
         jbtn(zrow, "W  ↑ up", dz=1, r=0, c=0)
         jbtn(zrow, "S  ↓ down", dz=-1, r=0, c=1)
 
-        # key bindings (Cartesian arrows + W/S height + step select)
-        self.root.bind("<Up>", lambda e: self._calib_jog(dx=1))
-        self.root.bind("<Down>", lambda e: self._calib_jog(dx=-1))
-        self.root.bind("<Left>", lambda e: self._calib_jog(dy=-1))
-        self.root.bind("<Right>", lambda e: self._calib_jog(dy=1))
-        self.root.bind("<KeyPress-w>", lambda e: self._calib_jog(dz=1))
-        self.root.bind("<KeyPress-s>", lambda e: self._calib_jog(dz=-1))
-        self.root.bind("<KeyPress-1>", lambda e: self.calib_step_var.set("Coarse"))
-        self.root.bind("<KeyPress-2>", lambda e: self.calib_step_var.set("Medium"))
-        self.root.bind("<KeyPress-3>", lambda e: self.calib_step_var.set("Fine"))
-        self.root.focus_set()
+        # Key bindings — bind_all so W/S still work after clicking buttons
+        # (root-only KeyPress-w often dies when focus moves to a child widget).
+        self._calib_bind_keys()
+        try:
+            self.root.focus_force()
+        except Exception:
+            self.root.focus_set()
 
         self.set_status("Reader calibration — connecting to arm…")
         # connect + move to the tool-down start pose in a worker
         threading.Thread(target=self._calib_connect, daemon=True).start()
 
+    def _calib_bind_keys(self):
+        """Arrow keys = XY (forward/back inverted); W/S = height. bind_all for focus."""
+        self._calib_unbind_keys()
+
+        def jog_if_active(**kwargs):
+            def _h(event):
+                if not getattr(self, "_calib_active", False):
+                    return
+                try:
+                    if event.widget and event.widget.winfo_class() in ("Entry", "TEntry", "Text"):
+                        return
+                except Exception:
+                    pass
+                self._calib_jog(**kwargs)
+                return "break"
+            return _h
+
+        def set_step(name):
+            def _h(event):
+                if not getattr(self, "_calib_active", False):
+                    return
+                self.calib_step_var.set(name)
+                return "break"
+            return _h
+
+        binds = {
+            # Forward/back (X) and left/right (Y) inverted to match operator feel
+            "<Up>": jog_if_active(dx=-1),
+            "<Down>": jog_if_active(dx=1),
+            "<Left>": jog_if_active(dy=1),
+            "<Right>": jog_if_active(dy=-1),
+            "<KeyPress-w>": jog_if_active(dz=1),    # up
+            "<KeyPress-W>": jog_if_active(dz=1),
+            "<KeyPress-s>": jog_if_active(dz=-1),   # down
+            "<KeyPress-S>": jog_if_active(dz=-1),
+            "<KeyPress-1>": set_step("Coarse"),
+            "<KeyPress-2>": set_step("Medium"),
+            "<KeyPress-3>": set_step("Fine"),
+        }
+        self._calib_key_binds = binds
+        for seq, handler in binds.items():
+            self.root.bind_all(seq, handler)
+
     def _calib_unbind_keys(self):
-        for seq in ("<Up>", "<Down>", "<Left>", "<Right>",
-                    "<KeyPress-w>", "<KeyPress-s>",
-                    "<KeyPress-1>", "<KeyPress-2>", "<KeyPress-3>"):
+        binds = getattr(self, "_calib_key_binds", None) or {}
+        for seq in list(binds.keys()) + [
+            "<Up>", "<Down>", "<Left>", "<Right>",
+            "<KeyPress-w>", "<KeyPress-W>", "<KeyPress-s>", "<KeyPress-S>",
+            "<KeyPress-1>", "<KeyPress-2>", "<KeyPress-3>",
+            "<KeyPress>",
+        ]:
+            try:
+                self.root.unbind_all(seq)
+            except Exception:
+                pass
             try:
                 self.root.unbind(seq)
             except Exception:
                 pass
+        self._calib_key_binds = None
+        self._calib_key_handler = None
 
     def _calib_connect(self):
         try:
@@ -1512,17 +1839,42 @@ class App:
                 self.root.after(0, lambda: self._calib_set_status(
                     "Arm error {} — clear it in Studio.".format(arm.error_code), BRAND['red']))
                 return
-            # Move to the tool-down 0° staging start pose.
+            # Move to the tool-down 0° staging start pose, then force the card
+            # parallel to the reader (taught joints alone can leave a tilt).
             start = list(READER_STAGING_0_ANGLE)
             arm.set_servo_angle(angle=start, speed=config.MOTION_JOINT_SPEED,
                                 mvacc=config.MOTION_JOINT_ACC, wait=True, radius=0.0)
+            try:
+                pos = arm.get_position()
+                if pos[0] == 0:
+                    x, y, z, roll, pitch, yaw = pos[1][:6]
+                    want_roll = float(READER_PARALLEL_ROLL_DEG)
+                    if abs((-want_roll) - roll) < abs(want_roll - roll):
+                        want_roll = -want_roll
+                    want_pitch = float(READER_PARALLEL_PITCH_DEG)
+                    if abs(roll - want_roll) >= 0.5 or abs(pitch - want_pitch) >= 0.5:
+                        arm.set_position(
+                            x=x, y=y, z=z,
+                            roll=want_roll, pitch=want_pitch, yaw=yaw,
+                            speed=CALIB_JOG_TCP_SPEED, mvacc=CALIB_JOG_TCP_ACC,
+                            wait=True, radius=0.0,
+                        )
+            except Exception:
+                pass
+            # Suction on so the operator can seat a card before jogging down.
+            # Same SDK call / args as GuiRobot._set_suction (pick/drop).
+            try:
+                arm.set_suction_cup(True, wait=False, delay_sec=0, hardware_version=1)
+                self._last_suction = True
+            except Exception:
+                pass
             self._calib_arm = arm
             self._calib_active = True
             self._calib_q = queue.Queue()
             self._calib_worker = threading.Thread(target=self._calib_jog_worker, daemon=True)
             self._calib_worker.start()
             self.root.after(0, lambda: self._calib_set_status(
-                "Ready — jog the arm over the reader.", BRAND['green']))
+                "Suction on — place a card on the cup, then jog over the reader.", BRAND['green']))
             self.root.after(200, self._calib_poll)
         except Exception as e:
             self.root.after(0, lambda e=e: self._calib_set_status("Connect error: {}".format(e), BRAND['red']))
@@ -1554,13 +1906,13 @@ class App:
             if arm is None or self._calib_capturing:
                 continue
             try:
-                # Table floor guard for downward moves.
-                if dz < 0:
+                # Table floor guard — never go below min height above table.
+                if dz != 0:
                     pos = arm.get_position()
                     if pos[0] == 0:
                         above = pos[1][2] - TABLE_Z
                         if above + dz < CALIB_MIN_ABOVE_TABLE_MM:
-                            dz = min(0.0, CALIB_MIN_ABOVE_TABLE_MM - above)
+                            dz = CALIB_MIN_ABOVE_TABLE_MM - above
                 if dx or dy or dz:
                     arm.set_position(x=dx, y=dy, z=dz, roll=0, pitch=0, yaw=0,
                                      relative=True, speed=CALIB_JOG_TCP_SPEED,
@@ -1595,7 +1947,7 @@ class App:
                 if ang[0] == 0:
                     self.calib_readout["Joints (°)"].config(
                         text="[{}]".format(", ".join("{:.1f}".format(a) for a in ang[1])))
-                    self._feed_telemetry(list(ang[1])[:6])
+                    self._feed_telemetry(list(ang[1])[:6], self._last_suction)
             except Exception:
                 pass
         self.root.after(200, self._calib_poll)
@@ -1667,7 +2019,7 @@ class App:
         def teardown():
             if arm is not None:
                 try:
-                    # lift clear, then park home
+                    # lift clear, then park home (keep suction so the card stays seated)
                     arm.set_position(z=40, roll=0, pitch=0, yaw=0, relative=True,
                                      speed=CALIB_JOG_TCP_SPEED, mvacc=CALIB_JOG_TCP_ACC, wait=True)
                 except Exception:
@@ -1676,6 +2028,12 @@ class App:
                     arm.set_servo_angle(angle=config.HOME_ANGLE,
                                         speed=config.MOTION_PARK_JOINT_SPEED,
                                         mvacc=config.MOTION_PARK_JOINT_ACC, wait=True, radius=0.0)
+                except Exception:
+                    pass
+                try:
+                    # Release vacuum at home (same SDK call as GuiRobot._set_suction).
+                    arm.set_suction_cup(False, wait=True, delay_sec=0, hardware_version=1)
+                    self._last_suction = False
                 except Exception:
                     pass
                 try:
@@ -1733,12 +2091,17 @@ class App:
             self.set_status("ROS2 telemetry stopped.")
 
     def _feed_telemetry(self, joints, suction=None):
-        """Route a fresh joint/suction sample to the browser view and/or ROS2 bridge."""
+        """Route a fresh joint/suction sample to the Live arm pane and/or ROS2."""
         if not joints:
             return
         self._last_joints = joints
         if suction is not None:
             self._last_suction = bool(suction)
+        if self._arm_gl is not None:
+            try:
+                self._arm_gl.update(joints)
+            except Exception:
+                pass
         if self._viewer is not None:
             self._viewer.set_state(
                 joints, self._last_suction if suction is not None else None)

@@ -165,10 +165,11 @@ def _make_gl_frame_class():
             self._meshes = meshes
             self._lists = None
             self._joints = [0.0] * 6
-            self._az = -60.0     # orbit azimuth (deg)
-            self._el = 22.0      # orbit elevation (deg)
-            self._dist = 1.15    # camera distance (m)
-            self._target = (0.0, 0.0, 0.28)
+            # Default camera close to UFactory Studio's 3/4 front view
+            self._az = -48.0     # orbit azimuth (deg)
+            self._el = 28.0      # orbit elevation (deg)
+            self._dist = 1.05    # camera distance (m)
+            self._target = (0.05, 0.0, 0.26)
             self._lastxy = None
             self.animate = 33    # ~30 fps continuous redraw
             self.bind("<Button-1>", self._on_press)
@@ -252,17 +253,50 @@ def _make_gl_frame_class():
                     GL.glMultMatrixf(np.ascontiguousarray(Ts[i].T, dtype=np.float32))
                     GL.glCallList(lid)
                     GL.glPopMatrix()
+                # TCP RGB triad at the flange (UFactory Studio style)
+                self._draw_tcp_axes(Ts[-1])
 
         def _draw_grid(self):
             GL.glDisable(GL.GL_LIGHTING)
-            GL.glColor3f(0.22, 0.24, 0.28)
+            n = 10
+            step = 0.1
+            # faint grid
+            GL.glColor3f(0.20, 0.22, 0.26)
             GL.glBegin(GL.GL_LINES)
-            n = 8; step = 0.1
             for i in range(-n, n + 1):
+                if i == 0:
+                    continue
                 x = i * step
                 GL.glVertex3f(x, -n * step, 0.0); GL.glVertex3f(x, n * step, 0.0)
                 GL.glVertex3f(-n * step, x, 0.0); GL.glVertex3f(n * step, x, 0.0)
             GL.glEnd()
+            # brighter center axes
+            GL.glColor3f(0.32, 0.34, 0.40)
+            GL.glBegin(GL.GL_LINES)
+            GL.glVertex3f(-n * step, 0.0, 0.0); GL.glVertex3f(n * step, 0.0, 0.0)
+            GL.glVertex3f(0.0, -n * step, 0.0); GL.glVertex3f(0.0, n * step, 0.0)
+            GL.glEnd()
+            GL.glEnable(GL.GL_LIGHTING)
+
+        def _draw_tcp_axes(self, T):
+            """Draw RGB XYZ arrows at the tool flange (like UFactory Studio)."""
+            GL.glDisable(GL.GL_LIGHTING)
+            GL.glLineWidth(2.5)
+            origin = T[:3, 3]
+            axes = (
+                (T[:3, 0], (0.92, 0.22, 0.22)),  # X red
+                (T[:3, 1], (0.22, 0.82, 0.28)),  # Y green
+                (T[:3, 2], (0.25, 0.45, 0.95)),  # Z blue
+            )
+            length = 0.08
+            GL.glBegin(GL.GL_LINES)
+            for axis, color in axes:
+                tip = origin + axis * length
+                GL.glColor3f(*color)
+                GL.glVertex3f(*origin)
+                GL.glVertex3f(*tip)
+            GL.glEnd()
+            GL.glLineWidth(1.0)
             GL.glEnable(GL.GL_LIGHTING)
 
     return _GLFrameImpl

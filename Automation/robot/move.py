@@ -287,7 +287,11 @@ class RobotMain:
             else:
                 print(f">> Unknown barcode: {barcode}")
 
-        listener = BarcodeListener(on_barcode, tk_root=getattr(self, "tk_root", None))
+        listener = BarcodeListener(
+            on_barcode,
+            tk_root=getattr(self, "tk_root", None),
+            force_capture=True,
+        )
         listener.start()
         print(f">> Waiting for barcode (up to {timeout}s)...")
         event.wait(timeout=timeout)

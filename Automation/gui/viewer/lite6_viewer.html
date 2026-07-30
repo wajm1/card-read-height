@@ -8,11 +8,11 @@
   html, body { margin: 0; height: 100%; background: #1b1d23; overflow: hidden;
                font-family: Arial, Helvetica, sans-serif; }
   #c { width: 100vw; height: 100vh; display: block; }
-  #hud { position: fixed; left: 12px; top: 10px; color: #cfd2da; font-size: 12px;
+  #hud { position: fixed; right: 12px; top: 48px; color: #cfd2da; font-size: 12px;
          background: rgba(0,0,0,.35); padding: 6px 10px; border-radius: 6px;
-         max-width: 42vw; line-height: 1.35; }
+         max-width: 36vw; line-height: 1.35; text-align: right; }
   #hud b { color: #ff5a4d; }
-  #err { position: fixed; left: 12px; bottom: 12px; right: 12px; color: #ffb3ad;
+  #err { position: fixed; left: 45vw; bottom: 12px; right: 12px; color: #ffb3ad;
          font-size: 12px; white-space: pre-wrap; background: rgba(60,0,0,.4);
          padding: 8px 10px; border-radius: 6px; display: none; }
   #status { position: fixed; right: 12px; top: 10px; color: #8f9; font-size: 12px;
@@ -74,11 +74,30 @@ document.body.appendChild(labelRenderer.domElement);
 const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
-camera.position.set(0.9, 0.8, 0.9);
+// Default pose: arm sits in the visible band to the RIGHT of the floating Tk
+// panel (panel covers ~left 45% when docked). View-offset recenters the arm
+// in that clear region — matches the desired left-GUI / right-workcell layout.
+camera.position.set(0.75, 0.72, 1.05);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.3, 0);
+controls.target.set(0.05, 0.32, 0.0);
 controls.enableDamping = true;
+
+// Fraction of the browser width covered by the left-docked Tk panel (approx).
+const TK_OVERLAY_FRAC = 0.45;
+
+function applyGuiSafeFraming() {
+  const w = Math.max(1, window.innerWidth);
+  const h = Math.max(1, window.innerHeight);
+  const xOff = Math.floor(w * TK_OVERLAY_FRAC);
+  const viewW = Math.max(1, w - xOff);
+  // Render as if the "real" viewport is only the clear band on the right, so
+  // the arm at the origin appears centered in what the operator can see.
+  camera.setViewOffset(w, h, xOff, 0, viewW, h);
+}
+
+applyGuiSafeFraming();
+window.addEventListener('resize', applyGuiSafeFraming);
 
 // lighting — soft studio feel
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 1.1));
@@ -266,6 +285,7 @@ function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== w || canvas.height !== h) {
     renderer.setSize(w, h, false);
+    applyGuiSafeFraming();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     labelRenderer.setSize(window.innerWidth, window.innerHeight);

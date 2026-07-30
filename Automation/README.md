@@ -42,8 +42,8 @@ Automation/
 └── logs/                # Runtime logs (git-ignored)
 
 ../files/
-├── AllCards.csv         # Barcode → card-type lookup
-├── card_readers.json    # Reader model heights (GUI)
+├── AllCards.csv         # Barcode → card name / part / side (HWG lookup)
+├── hwg/                 # Reader config profiles (*.hwg+)
 └── hwg/*.hwg+           # HWG+ reader-config files (one per card technology)
 
 ../results/              # Test output CSVs
@@ -68,7 +68,7 @@ python robot/cardreadheight.py --cycles 14
 python robot/cardreadheight.py --dry-run     # no robot — validate pipeline
 ```
 
-On the main test screen the Tk window floats on top; the Lite 6 three.js view
+On the main test screen the Tk window floats on top (~860×840); the Lite 6 three.js view
 opens in the browser with Drop / pick up / Reader / Flip markers and a card mesh
 while suction is on. Use **REOPEN 3D VIEW** if the tab was closed. Orbit/zoom
 stay in the browser; test controls stay in Tk.

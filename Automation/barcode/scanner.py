@@ -41,6 +41,24 @@ SHIFT_MAP = {
 _ENTRY_CLASSES = frozenset({"Entry", "TEntry", "Spinbox", "TSpinbox"})
 
 
+def _open_csv_text(path: str, mode: str = "r"):
+    """Open a results/AllCards CSV with encoding fallback.
+
+    Newer GUI exports are UTF-8. Some Keep/ legacy files were saved with a
+    broken Windows dash (``\\x80\\x94`` instead of UTF-8 ``—``), which makes
+    strict ``utf-8`` fail mid end-of-run scrub. Prefer utf-8-sig, then
+    cp1252 / latin-1 so baseline sync never aborts a finished test.
+    """
+    last_err = None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return open(path, mode, newline="", encoding=enc)
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+    raise last_err  # type: ignore[misc]
+
+
 def register_tk_text_input(tk_root, widget) -> None:
     """Mark GUI text fields so global wedge hooks never swallow typed keys."""
     if tk_root is None:
@@ -81,11 +99,23 @@ def _typing_in_tk_entry(tk_root) -> bool:
 class BarcodeListener:
     """Captures barcode scanner keystrokes via global keyboard hook."""
 
-    def __init__(self, callback, *, suppress_wedge=True, block_barcode_prefix=True, tk_root=None):
+    def __init__(
+        self,
+        callback,
+        *,
+        suppress_wedge=True,
+        block_barcode_prefix=True,
+        tk_root=None,
+        force_capture=False,
+    ):
         self.callback = callback
         self.suppress_wedge = suppress_wedge
         self.block_barcode_prefix = block_barcode_prefix
         self._tk_root = tk_root
+        # When True, capture wedge keys even if a Tk Entry still has focus.
+        # Required during pick/wave scans — always-on-top GUI often leaves
+        # Comment/Cards focused, which otherwise silently drops every scan.
+        self.force_capture = bool(force_capture)
         self.buf = ""
         self.active = False
         self._hook = None
@@ -93,6 +123,7 @@ class BarcodeListener:
         self._shift = False
         self._last_time = 0.0
         self._block_burst = False
+        self._warned_focus_block = False
 
     def start(self):
         if self.active:
@@ -101,6 +132,7 @@ class BarcodeListener:
         self._shift = False
         self._last_time = 0.0
         self._block_burst = False
+        self._warned_focus_block = False
         self.active = True
         if self.suppress_wedge:
             self._unhook = keyboard.hook(self._on_key, suppress=True)
@@ -141,7 +173,15 @@ class BarcodeListener:
         if not self.active:
             return self._allow_key()
 
-        if _typing_in_tk_entry(self._tk_root):
+        if not self.force_capture and _typing_in_tk_entry(self._tk_root):
+            if not self._warned_focus_block:
+                self._warned_focus_block = True
+                try:
+                    print(">> Barcode ignored — a GUI text field has focus. "
+                          "Click the window background (not Comment/Cards) or "
+                          "restart the run.")
+                except Exception:
+                    pass
             return True
 
         if event.event_type != "down":
@@ -283,56 +323,60 @@ def collect_poisoned_part_numbers_from_results(
     poisoned: set[str] = set()
     pattern = os.path.join(results_dir, "**", "*_read_heights.csv")
     for results_path in glob.glob(pattern, recursive=True):
-        reader_h = _reader_height_from_results_header(results_path)
-        with open(results_path, newline="", encoding="utf-8-sig") as f:
-            reader = _csv.reader(f)
-            header_row = None
-            for row in reader:
-                if not row:
-                    continue
-                if row[0].strip().lower() == "run" and len(row) > 5:
-                    header_row = [c.strip() for c in row]
-                    break
-            if not header_row:
-                continue
-            fields = {name.lower(): idx for idx, name in enumerate(header_row)}
-            code_idx = _results_column_index(fields, "card code")
-            if code_idx is None:
-                continue
-            inline_hdr = ""
-            inline_idx = _results_column_index(
-                fields, "inline avg (mm above reader)", "inline avg (mm)",
-            )
-            if inline_idx is not None and inline_idx < len(header_row):
-                inline_hdr = header_row[inline_idx].lower()
-            values_are_above_reader = "above reader" in inline_hdr
-            measure_cols = []
-            for key in (
-                "inline avg (mm above reader)", "inline avg (mm)",
-                "orthogonal avg (mm above reader)", "orthogonal avg (mm)",
-                "inline min", "inline max", "orthogonal min", "orthogonal max",
-                "card max (mm)", "card max",
-            ):
-                idx = _results_column_index(fields, key)
-                if idx is not None:
-                    measure_cols.append(idx)
-            for row in reader:
-                if not row or not row[0].strip():
-                    continue
-                code = row[code_idx].strip() if code_idx < len(row) else ""
-                part = code_to_part.get(_normalize_code(code), "")
-                if not part:
-                    continue
-                for idx in measure_cols:
-                    if idx >= len(row):
+        try:
+            reader_h = _reader_height_from_results_header(results_path)
+            with _open_csv_text(results_path) as f:
+                reader = _csv.reader(f)
+                header_row = None
+                for row in reader:
+                    if not row:
                         continue
-                    if measurement_is_poisoned(
-                        row[idx],
-                        reader_height_mm=reader_h,
-                        values_are_above_reader=values_are_above_reader,
-                    ):
-                        poisoned.add(part)
+                    if row[0].strip().lower() == "run" and len(row) > 5:
+                        header_row = [c.strip() for c in row]
                         break
+                if not header_row:
+                    continue
+                fields = {name.lower(): idx for idx, name in enumerate(header_row)}
+                code_idx = _results_column_index(fields, "card code")
+                if code_idx is None:
+                    continue
+                inline_hdr = ""
+                inline_idx = _results_column_index(
+                    fields, "inline avg (mm above reader)", "inline avg (mm)",
+                )
+                if inline_idx is not None and inline_idx < len(header_row):
+                    inline_hdr = header_row[inline_idx].lower()
+                values_are_above_reader = "above reader" in inline_hdr
+                measure_cols = []
+                for key in (
+                    "inline avg (mm above reader)", "inline avg (mm)",
+                    "orthogonal avg (mm above reader)", "orthogonal avg (mm)",
+                    "inline min", "inline max", "orthogonal min", "orthogonal max",
+                    "card max (mm)", "card max",
+                ):
+                    idx = _results_column_index(fields, key)
+                    if idx is not None:
+                        measure_cols.append(idx)
+                for row in reader:
+                    if not row or not row[0].strip():
+                        continue
+                    code = row[code_idx].strip() if code_idx < len(row) else ""
+                    part = code_to_part.get(_normalize_code(code), "")
+                    if not part:
+                        continue
+                    for idx in measure_cols:
+                        if idx >= len(row):
+                            continue
+                        if measurement_is_poisoned(
+                            row[idx],
+                            reader_height_mm=reader_h,
+                            values_are_above_reader=values_are_above_reader,
+                        ):
+                            poisoned.add(part)
+                            break
+        except (OSError, UnicodeError, _csv.Error) as e:
+            print(">> Skipping results file {} ({})".format(results_path, e))
+            continue
     return poisoned
 
 
@@ -442,7 +486,7 @@ def _ingest_results_baselines(results_path: str) -> dict[str, tuple[float | None
                     code_to_part[code] = part
 
     by_part: dict[str, dict[str, list[float]]] = {}
-    with open(results_path, newline="", encoding="utf-8-sig") as f:
+    with _open_csv_text(results_path) as f:
         reader = _csv.reader(f)
         header_row = None
         for row in reader:
@@ -630,43 +674,77 @@ def migrate_all_cards_avg_columns() -> bool:
 
 
 def update_all_cards_averages(updates: list[dict]) -> int:
-    """Write inline/orthogonal averages (mm above reader top) into AllCards.csv by barcode."""
+    """Legacy: write inline/orthogonal averages into AllCards.csv by barcode.
+
+    Current AllCards.csv has no height columns (barcode → name/HWG only).
+    Returns 0 without modifying the file when those columns are absent.
+    """
     import csv as _csv
 
-    path, fieldnames, rows = _read_all_cards_table()
-    if not path:
+    if not updates:
+        return 0
+    path = _resolve_cards_csv_path()
+    if not path or not os.path.isfile(path):
         return 0
 
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        rows = list(_csv.DictReader(f))
+        fieldnames = list(rows[0].keys()) if rows else []
+        if not fieldnames:
+            with open(path, newline="", encoding="utf-8-sig") as f2:
+                fieldnames = list(_csv.DictReader(f2).fieldnames or [])
+
+    # Do not re-introduce baseline columns into a slim AllCards.csv.
+    has_inline = any(
+        (c or "").strip().lower() in (
+            "inline avg (mm above reader)", "inline avg (mm)", "inline_avg",
+        )
+        for c in fieldnames
+    )
+    has_orth = any(
+        (c or "").strip().lower() in (
+            "orthogonal avg (mm above reader)", "orthogonal avg (mm)", "orthogonal_avg",
+        )
+        for c in fieldnames
+    )
+    if not (has_inline and has_orth):
+        return 0
+
+    # ... legacy path kept below for older CSVs that still have avg columns
+    fieldnames, _ = _ensure_avg_columns(fieldnames)
     by_code = {}
     for item in updates:
         code = _normalize_code(item.get("card_code") or item.get("barcode") or "")
         if code:
             by_code[code] = item
 
-    if not by_code:
-        return 0
+    changed = 0
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = _csv.DictReader(f)
+        rows = list(reader)
+        fieldnames = list(reader.fieldnames or fieldnames)
 
-    fields = {name.strip().lower(): name for name in fieldnames}
-    barcode_key = _field_key(
-        fields, "barcode", "bar code", "card barcode", "id", "code", "card id",
-    )
-    updated = 0
+    fieldnames, _ = _ensure_avg_columns(fieldnames)
     for row in rows:
-        bc = _normalize_code(row.get(barcode_key or "Barcode") or "")
-        item = by_code.get(bc)
+        code = _normalize_code(row.get("Barcode") or row.get("barcode") or "")
+        item = by_code.get(code)
         if not item:
             continue
+        before = (row.get(ALL_CARDS_INLINE_AVG_COL), row.get(ALL_CARDS_ORTH_AVG_COL))
         if item.get("inline_avg") not in ("", None) and not is_bad_reference_height(item["inline_avg"]):
             row[ALL_CARDS_INLINE_AVG_COL] = _format_avg(item["inline_avg"])
         if item.get("orthogonal_avg") not in ("", None) and not is_bad_reference_height(item["orthogonal_avg"]):
             row[ALL_CARDS_ORTH_AVG_COL] = _format_avg(item["orthogonal_avg"])
-        updated += 1
+        after = (row.get(ALL_CARDS_INLINE_AVG_COL), row.get(ALL_CARDS_ORTH_AVG_COL))
+        if after != before:
+            changed += 1
 
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = _csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-    return updated
+    if changed:
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = _csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+    return changed
 
 
 def _normalize_avg_above_reader(value: float | None, reader_height_mm: float | None) -> float | None:
@@ -692,12 +770,12 @@ def _results_column_index(fields: dict, *candidates: str):
 
 
 def _reader_height_from_results_header(results_path: str) -> float | None:
-    """Read Reader Type from results header and look up height in card_readers.json."""
+    """Read Reader Type from results header; look up height if card_readers.json exists."""
     import csv as _csv
     import json
 
     try:
-        with open(results_path, newline="", encoding="utf-8-sig") as f:
+        with _open_csv_text(results_path) as f:
             for row in _csv.reader(f):
                 if len(row) >= 2 and row[0].strip().lower() == "reader type":
                     reader_id = row[1].strip()
@@ -705,13 +783,15 @@ def _reader_height_from_results_header(results_path: str) -> float | None:
             else:
                 return None
         lib_path = os.path.join(config.PATHS["files"], "card_readers.json")
+        if not os.path.isfile(lib_path):
+            return None
         with open(lib_path, encoding="utf-8") as f:
             data = json.load(f)
         for entry in data.get("card_readers", []):
-            rid = (entry.get("id") or entry.get("model") or "").strip()
-            if rid.lower() == reader_id.lower():
+            eid = (entry.get("id") or entry.get("model") or "").strip()
+            if eid.lower() == reader_id.lower():
                 h = entry.get("height_mm")
-                return float(h) if h is not None else None
+                return float(h) if isinstance(h, (int, float)) else None
     except Exception:
         return None
     return None
@@ -734,7 +814,7 @@ def import_results_csv_to_all_cards(
         reader_height_mm = _reader_height_from_results_header(results_path)
 
     updates = []
-    with open(results_path, newline="", encoding="utf-8-sig") as f:
+    with _open_csv_text(results_path) as f:
         reader = _csv.reader(f)
         header_row = None
         for row in reader:
@@ -887,12 +967,14 @@ def lookup_card_from_csv(barcode: str, csv_path: str | None = None) -> dict | No
                 side = target[0].upper() if target[0] in ("a", "b") else ""
 
             part_number = (row.get(part_key) or "").strip() if part_key else ""
+            # Height baselines are optional (removed from current AllCards.csv).
             inline_avg = orth_avg = None
-            if part_number and part_number in part_baselines:
-                inline_avg, orth_avg = part_baselines[part_number]
-            else:
-                inline_avg = good_reference_height(row.get(inline_key) if inline_key else None)
-                orth_avg = good_reference_height(row.get(orth_key) if orth_key else None)
+            if inline_key or orth_key:
+                if part_number and part_number in part_baselines:
+                    inline_avg, orth_avg = part_baselines[part_number]
+                else:
+                    inline_avg = good_reference_height(row.get(inline_key) if inline_key else None)
+                    orth_avg = good_reference_height(row.get(orth_key) if orth_key else None)
 
             hwg_file = f"{card_name}.hwg+"
             return {

@@ -59,7 +59,6 @@ RESULT_FIELDS = [
     "Card Name",
     "Barcode",
     "Read Height (mm)",
-    "Side",
     "Status",
 ]
 
@@ -68,7 +67,6 @@ SUMMARY_FIELDS = [
     "Reader Model",
     "Card Name",
     "Barcode",
-    "Side",
     "Scans",
     "Avg Read Height (mm)",
     "Min (mm)",
@@ -479,7 +477,6 @@ class CardReadHeightTest(RobotMain):
             "Reader Model": reader_model,
             "Card Name": card_info.get("name", ""),
             "Barcode": card_info.get("barcode", ""),
-            "Side": side,
             "Scans": len(heights),
             "Avg Read Height (mm)": f"{avg:.2f}" if avg is not None else "",
             "Min (mm)": f"{lo:.2f}" if lo is not None else "",
@@ -673,7 +670,6 @@ def run_dry_run(*, configure_reader: bool = False) -> int:
             "Card Name": card["name"],
             "Barcode": "A001",
             "Read Height (mm)": f"{config.DEFAULT_READ_SPEC_MM:.2f}",
-            "Side": card.get("side", "A"),
             "Status": "DRY-RUN",
         })
     print(f"Dry-run results written -> {path}")
