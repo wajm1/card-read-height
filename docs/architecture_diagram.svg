@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Author: Wajahat Mahmood | 2026-07-30 | rf IDEAS - Proprietary and Confidential
+     Program structure of the Credential Read Height rig. Solid arrow = imports/calls;
+     dashed arrow = optional import; boxes in a row are peers. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 860" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#58595B"/>
+    </marker>
+    <marker id="arrowOpt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#B7B7B7"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1060" height="860" fill="#FFFFFF"/>
+
+  <!-- header bar -->
+  <rect x="0" y="0" width="1060" height="54" fill="#161618"/>
+  <text x="24" y="34" font-size="20" font-weight="bold" fill="#FFFFFF">rf</text>
+  <text x="45" y="34" font-size="20" font-weight="bold" fill="#ED2024">IDEAS</text>
+  <text x="120" y="33" font-size="15" fill="#CFCFD2">Credential Read Height Rig — Program Structure</text>
+  <text x="1036" y="33" font-size="11" fill="#B7B7B7" text-anchor="end">2026-07-30</text>
+
+  <!-- layer labels -->
+  <g font-size="11" fill="#8A8A8E" font-weight="bold">
+    <text x="14" y="98">ENTRY</text>
+    <text x="14" y="198">UI / APP</text>
+    <text x="14" y="298">ORCHESTRATION</text>
+    <text x="14" y="398">MOTION CORE</text>
+    <text x="14" y="498">DEVICES · PERSIST</text>
+    <text x="14" y="598">FOUNDATION</text>
+  </g>
+
+  <!-- ===== edges (drawn first, under boxes) ===== -->
+  <g stroke="#58595B" stroke-width="1.6" fill="none">
+    <line x1="215" y1="112" x2="255" y2="176" marker-end="url(#arrow)"/>      <!-- gui.py -> app -->
+    <line x1="285" y1="220" x2="285" y2="276" marker-end="url(#arrow)"/>      <!-- app -> GuiRobot -->
+    <line x1="285" y1="320" x2="285" y2="376" marker-end="url(#arrow)"/>      <!-- GuiRobot -> move -->
+    <line x1="250" y1="420" x2="235" y2="476" marker-end="url(#arrow)"/>      <!-- move -> scanner -->
+    <line x1="360" y1="420" x2="470" y2="476" marker-end="url(#arrow)"/>      <!-- move -> cli -->
+    <line x1="470" y1="112" x2="330" y2="376" marker-end="url(#arrow)"/>      <!-- cardreadheight -> move -->
+    <line x1="690" y1="112" x2="560" y2="476" marker-end="url(#arrow)"/>      <!-- ReaderConfig -> scanner/cli area -->
+    <line x1="700" y1="112" x2="700" y2="576" marker-end="url(#arrow)"/>      <!-- ReaderConfigSDK -> config -->
+    <line x1="470" y1="220" x2="800" y2="476" marker-end="url(#arrow)"/>      <!-- app -> calibration_store -->
+    <line x1="235" y1="520" x2="360" y2="576" marker-end="url(#arrow)"/>      <!-- scanner -> config -->
+    <line x1="520" y1="520" x2="520" y2="576" marker-end="url(#arrow)"/>      <!-- cli -> config -->
+    <line x1="840" y1="520" x2="720" y2="576" marker-end="url(#arrow)"/>      <!-- calibration_store -> config -->
+  </g>
+  <!-- optional edges -->
+  <g stroke="#B7B7B7" stroke-width="1.6" fill="none" stroke-dasharray="5 4">
+    <line x1="430" y1="112" x2="170" y2="176" marker-end="url(#arrowOpt)"/>   <!-- cardreadheight optional gui launch -->
+    <line x1="470" y1="198" x2="560" y2="198" marker-end="url(#arrowOpt)"/>   <!-- app to optional viewers -->
+  </g>
+  <text x="360" y="150" font-size="9" fill="#B7B7B7" transform="rotate(-30 360 150)">--gui</text>
+
+  <!-- ===== ENTRY row ===== -->
+  <g font-size="12.5" fill="#161618">
+    <rect x="120" y="72" width="190" height="40" rx="6" fill="#EEEEEE" stroke="#494A8B" stroke-width="1.5"/>
+    <text x="215" y="97" text-anchor="middle">gui/gui.py</text>
+    <rect x="330" y="72" width="220" height="40" rx="6" fill="#EEEEEE" stroke="#494A8B" stroke-width="1.5"/>
+    <text x="440" y="90" text-anchor="middle">robot/cardreadheight.py</text>
+    <text x="440" y="104" text-anchor="middle" font-size="9.5" fill="#8A8A8E">CLI · CardReadHeightTest</text>
+    <rect x="570" y="72" width="180" height="40" rx="6" fill="#EEEEEE" stroke="#494A8B" stroke-width="1.5"/>
+    <text x="660" y="97" text-anchor="middle">reader/ReaderConfig.py</text>
+    <rect x="770" y="72" width="200" height="40" rx="6" fill="#EEEEEE" stroke="#494A8B" stroke-width="1.5"/>
+    <text x="870" y="90" text-anchor="middle">reader/ReaderConfigSDK.py</text>
+    <text x="870" y="104" text-anchor="middle" font-size="9.5" fill="#8A8A8E">standalone HID</text>
+  </g>
+
+  <!-- ===== UI row ===== -->
+  <rect x="120" y="176" width="350" height="44" rx="6" fill="#FFFFFF" stroke="#ED2024" stroke-width="2"/>
+  <text x="295" y="196" text-anchor="middle" font-size="13" font-weight="bold" fill="#161618">gui/app.py — App</text>
+  <text x="295" y="211" text-anchor="middle" font-size="9.5" fill="#8A8A8E">checklist · run · calibrator · CSV  (+ widgets, constants)</text>
+  <rect x="560" y="176" width="250" height="44" rx="6" fill="#FFFFFF" stroke="#B7B7B7" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="685" y="196" text-anchor="middle" font-size="12" fill="#58595B">arm_gl.py · robot_viewer.py</text>
+  <text x="685" y="211" text-anchor="middle" font-size="9.5" fill="#8A8A8E">optional 3-D views</text>
+
+  <!-- ===== Orchestration row ===== -->
+  <rect x="120" y="276" width="350" height="44" rx="6" fill="#FFFFFF" stroke="#494A8B" stroke-width="1.5"/>
+  <text x="295" y="296" text-anchor="middle" font-size="13" font-weight="bold" fill="#161618">gui/gui_robot.py — GuiRobot</text>
+  <text x="295" y="311" text-anchor="middle" font-size="9.5" fill="#8A8A8E">read-height · tap-and-go · deadzone · combined · flip</text>
+
+  <!-- ===== Motion core ===== -->
+  <rect x="120" y="376" width="570" height="44" rx="6" fill="#161618"/>
+  <text x="405" y="396" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFFFFF">robot/move.py — RobotMain + CardReadListener</text>
+  <text x="405" y="411" text-anchor="middle" font-size="9.5" fill="#CFCFD2">home · smart-pick · barcode+config · descend-until-read · clean stop</text>
+
+  <!-- ===== Devices / Persistence ===== -->
+  <rect x="120" y="476" width="230" height="44" rx="6" fill="#FFFFFF" stroke="#B7B7B7" stroke-width="1.5"/>
+  <text x="235" y="496" text-anchor="middle" font-size="12.5" fill="#161618">barcode/scanner.py</text>
+  <text x="235" y="511" text-anchor="middle" font-size="9.5" fill="#8A8A8E">wedge · AllCards lookup</text>
+  <rect x="410" y="476" width="230" height="44" rx="6" fill="#FFFFFF" stroke="#B7B7B7" stroke-width="1.5"/>
+  <text x="525" y="496" text-anchor="middle" font-size="12.5" fill="#161618">reader/cli.py</text>
+  <text x="525" y="511" text-anchor="middle" font-size="9.5" fill="#8A8A8E">RRMTool · HWG load</text>
+  <rect x="700" y="476" width="280" height="44" rx="6" fill="#FFFFFF" stroke="#2E9E5B" stroke-width="1.8"/>
+  <text x="840" y="496" text-anchor="middle" font-size="12.5" fill="#161618">persistence/calibration_store.py</text>
+  <text x="840" y="511" text-anchor="middle" font-size="9.5" fill="#2E9E5B">NEW · remembers tap location</text>
+
+  <!-- ===== Foundation ===== -->
+  <rect x="120" y="576" width="860" height="44" rx="6" fill="#494A8B"/>
+  <text x="550" y="596" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFFFFF">config.py — settings · poses · height math · paths</text>
+  <text x="550" y="611" text-anchor="middle" font-size="9.5" fill="#DCDCDE">imported by every layer · imports no project module (the leaf)</text>
+
+  <!-- ===== legend / not-connected callouts ===== -->
+  <rect x="120" y="648" width="860" height="176" rx="8" fill="#EEEEEE" stroke="#DCDCDE"/>
+  <text x="140" y="672" font-size="12" font-weight="bold" fill="#494A8B">LEGEND</text>
+  <line x1="230" y1="668" x2="270" y2="668" stroke="#58595B" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="278" y="672" font-size="11" fill="#58595B">imports / calls into</text>
+  <line x1="430" y1="668" x2="470" y2="668" stroke="#B7B7B7" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowOpt)"/>
+  <text x="478" y="672" font-size="11" fill="#58595B">optional import (runs without it)</text>
+
+  <text x="140" y="702" font-size="12" font-weight="bold" fill="#ED2024">DELIBERATELY NOT CONNECTED</text>
+  <g font-size="11" fill="#58595B">
+    <text x="140" y="724">• tools/ros2/ros2_bridge.py — never imported; receives JSON over UDP as a separate process.</text>
+    <text x="140" y="744">• robot/test_settings.py — used only by the CLI runner, not by the GUI.</text>
+    <text x="140" y="764">• reader/ReaderConfigSDK.py — standalone; depends on config only; nothing in the app imports it.</text>
+    <text x="140" y="784">• GuiRobot (GUI) and CardReadHeightTest (CLI) are parallel over move.py; neither imports the other.</text>
+    <text x="140" y="804">• config.py imports no project module — there are no circular imports.</text>
+  </g>
+
+  <text x="1036" y="852" font-size="10" fill="#B7B7B7" text-anchor="end">rf IDEAS — Proprietary and Confidential</text>
+</svg>

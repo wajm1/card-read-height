@@ -1,0 +1,23 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Logs (runtime-generated)
+*.log
+Automation/logs/*.log
+
+# Test result CSVs (runtime-generated; curated results live in results/Keep/)
+results/*.csv
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

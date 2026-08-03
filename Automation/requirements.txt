@@ -1,0 +1,12 @@
+keyboard>=0.13.5
+xarm-python-sdk>=1.13.0
+
+# Optional: Live arm panel in the GUI (gui/arm_gl.py)
+# pip install pyopengltk PyOpenGL numpy
+# pyopengltk
+# PyOpenGL
+# numpy
+
+# Optional: direct HID reader configuration (reader/ReaderConfigSDK.py)
+# hidapi
+# hid

@@ -1,0 +1,13 @@
+# RRMTool_CLI.exe location override  (rf IDEAS Credential Read Height rig)
+# Author: Wajahat Mahmood | 2026-07-30
+#
+# If RRMTool is NOT installed at C:\Program Files\rf IDEAS\RRMTool\, put the FULL
+# path to RRMTool_CLI.exe on the first non-comment line below and save this file.
+# The rig reads it at startup, so you only set it once (it survives restarts).
+#
+# Find the exe on this PC by running in a terminal:
+#     where /r C:\ RRMTool_CLI.exe
+# ...or in PowerShell:
+#     Get-ChildItem C:\ -Recurse -Filter RRMTool_CLI.exe -ErrorAction SilentlyContinue
+#
+C:\Users\wmahmood\OneDrive - rfIDEAS\Documents\card-read-heights\RRM_Tool_WIN_v2.3.1\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe

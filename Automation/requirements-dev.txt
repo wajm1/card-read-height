@@ -1,0 +1,10 @@
+# Developer / test dependencies for the Credential Read Height rig.
+# Author: Wajahat Mahmood — 2026-07-30
+#
+# These are NOT needed to run the rig; install them to run the test suite:
+#   pip install -r requirements-dev.txt
+#   python -m pytest
+#
+# The suite uses FakeArm + stubbed xarm/msvcrt (see tests/conftest.py) so it
+# runs with no robot, reader, or barcode scanner attached.
+pytest>=7.0

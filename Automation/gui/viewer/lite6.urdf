@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<!-- Flattened UFactory Lite 6 URDF for the three.js mesh viewer.
+     Joint origins/limits taken from xarm_ros2 xarm_description lite6.urdf.xacro.
+     Meshes referenced via package://lite6_description/... (mapped in the viewer). -->
+<robot name="lite6">
+
+  <material name="White">  <color rgba="0.9 0.9 0.9 1.0"/> </material>
+  <material name="Silver"> <color rgba="0.75 0.75 0.78 1.0"/> </material>
+
+  <link name="link_base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link_base.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+
+  <link name="link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link1.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+  <joint name="joint1" type="revolute">
+    <origin xyz="0 0 0.2435" rpy="0 0 0"/>
+    <parent link="link_base"/>
+    <child link="link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.283185" upper="6.283185" effort="50.0" velocity="3.14"/>
+  </joint>
+
+  <link name="link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link2.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+  <joint name="joint2" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 3.1416"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.61799" upper="2.61799" effort="50.0" velocity="3.14"/>
+  </joint>
+
+  <link name="link3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link3.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+  <joint name="joint3" type="revolute">
+    <origin xyz="0.2002 0 0" rpy="-3.1416 0 1.5708"/>
+    <parent link="link2"/>
+    <child link="link3"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.061087" upper="5.235988" effort="32.0" velocity="3.14"/>
+  </joint>
+
+  <link name="link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link4.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+  <joint name="joint4" type="revolute">
+    <origin xyz="0.087 -0.22761 0" rpy="1.5708 0 0"/>
+    <parent link="link3"/>
+    <child link="link4"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.283185" upper="6.283185" effort="32.0" velocity="3.14"/>
+  </joint>
+
+  <link name="link5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link5.stl"/></geometry>
+      <material name="White"/>
+    </visual>
+  </link>
+  <joint name="joint5" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+    <parent link="link4"/>
+    <child link="link5"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.1642" upper="2.1642" effort="32.0" velocity="3.14"/>
+  </joint>
+
+  <link name="link6">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="package://lite6_description/visual/link6.stl"/></geometry>
+      <material name="Silver"/>
+    </visual>
+  </link>
+  <joint name="joint6" type="revolute">
+    <origin xyz="0 0.0625 0" rpy="-1.5708 0 0"/>
+    <parent link="link5"/>
+    <child link="link6"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.283185" upper="6.283185" effort="20.0" velocity="3.14"/>
+  </joint>
+
+</robot>
