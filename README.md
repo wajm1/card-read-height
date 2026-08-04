@@ -60,9 +60,12 @@ card-read-height/
 
 ## Quick start
 
+**New PC?** Follow the full checklist: **[docs/SETUP.md](docs/SETUP.md)**
+(Python, pip, packages, RRM CLI, hardware, smoke test).
+
 ```bash
 cd Automation
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Launch the GUI
 python gui/gui.py
@@ -71,7 +74,7 @@ python gui/gui.py
 python robot/cardreadheight.py --cycles 14
 
 # run the headless test suite (no robot/reader needed)
-pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 

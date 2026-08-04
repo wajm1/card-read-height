@@ -36,43 +36,21 @@ also produce a formatted Excel workbook.
 
 ## 2. One-time software setup
 
-You only do this once per PC. See **[SETUP.md](SETUP.md)** for the full version.
+You only do this once per PC. Follow the full checklist in
+**[SETUP.md](SETUP.md)** (Python, pip, packages, RRM CLI, hardware, smoke test).
 
-1. Install Python 3.10+ (64-bit) and make sure `python` works in a terminal.
-2. Open a terminal in the `Automation/` folder and install dependencies:
+Short version:
 
-   ```bash
-   cd Automation
-   pip install -r requirements.txt
-   ```
+1. Install **Python 3.10+ (64-bit)** from python.org — tick **Add python.exe to PATH**.
+2. In `Automation\`: `python -m pip install -r requirements.txt`
+3. Download **RRM CLI – Windows** from  
+   https://www.rfideas.com/support/tools/downloads  
+   (not Configuration Utility). Pin the path in `files/rrmtool_path.txt`.
+4. Confirm: `python -c "import config; print(config.RRM_CLI_FOUND)"` → `True`
+5. Optional Live-arm view: `python -m pip install pyopengltk PyOpenGL numpy`
 
-3. Install **RRMTool** (the rf IDEAS reader-configuration CLI). ⚠️ This is the
-   **`RRM_Tool_WIN_v2.3.1`** package (contains `RRMTool_CLI.exe`), **not** the
-   public "rf IDEAS Configuration Utility" `.msi` (a GUI that does not include the
-   CLI). On this rig it lives at
-   `…\card-read-heights\RRM_Tool_WIN_v2.3.1\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe`
-   and is pinned in `files/rrmtool_path.txt`. Full install details, verification,
-   and the antivirus caveat are in **[SETUP.md](SETUP.md) §2**. The program also
-   finds `RRMTool_CLI.exe` automatically in `C:\Program Files\rf IDEAS\RRMTool\`, on
-   your PATH, or under `Downloads\RRM_Tool_*`. To point it elsewhere once, put the
-   full path on the first line of **`files/rrmtool_path.txt`**. Locate the exe with:
-
-   ```bat
-   where /r C:\ RRMTool_CLI.exe
-   ```
-
-   Verify what the rig resolved (should print `True`):
-
-   ```bat
-   cd Automation && python -c "import config; print(config.RRM_CLI, config.RRM_CLI_FOUND)"
-   ```
-
-4. (Optional) For the embedded 3-D Live-arm view:
-   `pip install pyopengltk PyOpenGL numpy`.
-
-> **Admin note:** the barcode/credential capture uses a global keyboard hook
-> (the `keyboard` package). On some Windows machines you must run the terminal
-> **as Administrator** for scans to be captured.
+> **Admin note:** barcode/credential capture uses a global keyboard hook
+> (`keyboard`). On some PCs run the terminal/GUI **as Administrator**.
 
 ---
 

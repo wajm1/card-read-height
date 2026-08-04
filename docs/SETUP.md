@@ -1,170 +1,233 @@
-<!-- Author: Wajahat Mahmood | Updated: 2026-08-03 | rf IDEAS — Proprietary and Confidential -->
+<!-- Author: Wajahat Mahmood | Updated: 2026-08-04 | rf IDEAS — Proprietary and Confidential -->
 
-# Setup Guide — Credential Read Height Rig
+# Setup Guide — New PC Checklist
 
-**Author:** Wajahat Mahmood **Updated:** 2026-08-03
+**Author:** Wajahat Mahmood  
+**Updated:** 2026-08-04
 
-> Follow these steps in order to bring the rig up on a fresh (or repaired) PC.
-> Each step says **what to do** and **how to confirm it worked**. If reader
-> configuration is failing, jump straight to **Step 2 (RRMTool)** — that is the
-> usual culprit. Operating instructions are in **[USER_MANUAL.md](USER_MANUAL.md)**.
+> Do these steps **once** on each new control PC. Work top to bottom. After setup,
+> day-to-day operation is in **[USER_MANUAL.md](USER_MANUAL.md)**.
 
 rf IDEAS — Proprietary and Confidential
 
 ---
 
-## What you need
+## Checklist (print / tick off)
 
-**Hardware**
-- UFACTORY **Lite 6** arm, powered on and reachable on the network.
-- rf IDEAS **WAVE ID** reader on USB.
-- USB **barcode scanner** (keyboard-wedge type).
-- Card stack seated in the pick bin; reader mounted per **USER_MANUAL §3**.
-
-**Software**
-- **Python 3.10+** (Windows is the target; some scripts use Windows-only modules).
-- **RRMTool** — the rf IDEAS reader-config CLI (**Step 2** — required).
-
----
-
-## Step 1 — Python and dependencies
-
-```bash
-cd Automation
-pip install -r requirements.txt
-```
-
-Installs `keyboard` (barcode capture) and `xarm-python-sdk` (Lite 6 control).
-
-Optional extras:
-```bash
-pip install pyopengltk PyOpenGL numpy   # embedded Live-arm 3-D view
-pip install -r requirements-dev.txt      # to run the test suite (pytest)
-```
-
-**Confirm:** `python --version` prints 3.10 or higher.
+1. [ ] Get the project folder
+2. [ ] Install Python (+ pip)
+3. [ ] Install Python packages
+4. [ ] Install RRM CLI (reader config tool)
+5. [ ] Point the project at `RRMTool_CLI.exe`
+6. [ ] Connect hardware (robot / reader / barcode)
+7. [ ] Smoke-test reader config (no robot motion)
+8. [ ] Launch the GUI and run a first check
 
 ---
 
-## Step 2 — RRMTool (REQUIRED — this is what configures the reader)
+## Step 1 — Get the project folder
 
-The rig configures the WAVE ID reader by shelling out to **`RRMTool_CLI.exe`**.
-Without it, every card fails with *"RRMTool_CLI not found → Reader configuration
-FAILED"* (barcode lookup still works, which is misleading).
-
-### 2a. Get the RIGHT package
-
-> ⚠️ **Not the same as the "rf IDEAS Configuration Utility."** The public
-> Configuration Utility (`rfIDEASConfigurationUtility*.msi`) is a GUI and does
-> **NOT** contain `RRMTool_CLI.exe`. You need the **RRM Tool** command-line
-> package: **`RRM_Tool_WIN_v2.3.1`** (an internal rf IDEAS deliverable — get it
-> from the rig owner / rf IDEAS engineering, not the public downloads page).
-
-It is a portable zip; extract it (no admin install needed). Inside it is:
-`…\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe`.
-
-### 2b. Where it lives on THIS rig
-
-On the current control PC it is installed here:
+Clone or copy the repo so you have a folder like:
 
 ```
-C:\Users\wmahmood\OneDrive - rfIDEAS\Documents\card-read-heights\RRM_Tool_WIN_v2.3.1\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe
+…\card-read-height\
+├── Automation\          ← run everything from here
+├── files\               ← AllCards.csv, hwg\, rrmtool_path.txt
+├── results\
+└── docs\
 ```
 
-(i.e. in the **`card-read-heights`** folder, one level **above** the `card-read-height`
-project folder.)
+Open **PowerShell** or **Command Prompt** and go into `Automation`:
 
-### 2c. How the rig finds it
-
-`config.py` resolves `RRMTool_CLI.exe` at startup, in priority order:
-1. the `RRM_CLI` environment variable,
-2. **`files/rrmtool_path.txt`** — a set-once override file (first non-comment line
-   is the full path),
-3. `C:\Program Files\rf IDEAS\RRMTool\` and `Program Files (x86)`,
-4. the system `PATH`,
-5. common `Downloads\RRM_Tool_*` folders.
-
-On this rig it is pinned via **`files/rrmtool_path.txt`**, whose active line is the
-full path in **2b**. If RRMTool ever moves, update that one line (or re-run the
-finder command below) — nothing else changes.
-
-Finder command (locates the exe and rewrites `files/rrmtool_path.txt`):
-```powershell
-$h = Get-ChildItem "C:\Users\wmahmood\OneDrive - rfIDEAS\Documents\card-read-heights","C:\Program Files\rf IDEAS" -Recurse -Filter RRMTool_CLI.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($h) { $h.FullName | Set-Content -Encoding ascii "C:\Users\wmahmood\OneDrive - rfIDEAS\Documents\card-read-heights\card-read-height\files\rrmtool_path.txt"; "PINNED -> $($h.FullName)" } else { "not found" }
-```
-
-### 2d. Confirm it works
-
-```powershell
-cd "C:\Users\wmahmood\OneDrive - rfIDEAS\Documents\card-read-heights\card-read-height\Automation"
-python -c "import config; print(config.RRM_CLI, config.RRM_CLI_FOUND)"
-```
-Must print the path and **`True`**. If `False`, the exe is not where the file
-points — re-check 2b/2c.
-
-### 2e. Antivirus note (important on this rig)
-
-This PC runs **CrowdStrike Falcon + Kaseya** (rf IDEAS IT managed). The original
-RRMTool was removed once already. If `RRMTool_CLI.exe` **disappears** after you
-place it, CrowdStrike is quarantining it — **ask rf IDEAS IT to add a Falcon
-exclusion for `RRMTool_CLI.exe` (or the `RRM_Tool_WIN_v2.3.1` folder).** You cannot
-override Falcon yourself on a managed machine. Keeping the exe inside the
-OneDrive-synced `card-read-heights` folder also means it re-syncs to the rig.
-
----
-
-## Step 3 — Robot connection
-
-`Automation/config.py` holds the robot IP (default `192.168.1.177`). Override
-without editing code:
 ```bat
-set ROBOT_IP=192.168.1.xxx
+cd path\to\card-read-height\Automation
 ```
-**Confirm:** `ping 192.168.1.177` replies, and no other app (e.g. UFACTORY Studio)
-is holding the connection.
 
 ---
 
-## Step 4 — Card database and HWG files
+## Step 2 — Install Python and pip
 
-- `files/AllCards.csv` — maps each barcode to `Name, Part Number, Side`.
-- `files/hwg/*.hwg+` — one reader-config file per card; the filename must equal the
-  CSV **`Name`** exactly, plus `.hwg+` (e.g. `Name = HID Prox UID (608x)` →
-  `files/hwg/HID Prox UID (608x).hwg+`). See **USER_MANUAL §7.4** for the exact rule
-  and how to add a card.
+1. Download **Python 3.10 or newer (64-bit)** from  
+   https://www.python.org/downloads/windows/
+2. Run the installer. On the first screen, check:
+   - **Add python.exe to PATH**
+   - Then choose **Install Now** (or Customize → include **pip**)
+3. Close and reopen your terminal, then confirm:
 
-**Confirm:** the cards you plan to run have both a CSV row and a matching HWG file.
+```bat
+python --version
+pip --version
+```
+
+Expected: Python **3.10+** and a pip version line.  
+If `python` is not found, try `py -3 --version` (Windows Python launcher).
+
+> Use **one** Python for this project. Prefer `python` / `pip` from the same
+> install. If you have several Pythons: `py -3.12 -m pip …`.
 
 ---
 
-## Step 5 — First-run verification (do this before a full run)
+## Step 3 — Install project packages
 
-Test the barcode → reader-config chain with **no robot motion**:
-```bash
-cd Automation
-python reader/ReaderConfig.py
+Still in `Automation\`:
+
+```bat
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
-Scan a card. Expected: it prints the card name and **"Reader configured."** If you
-see the RRMTool "not found" help instead, return to **Step 2**.
 
-Then launch the app:
-```bash
-python gui/gui.py
+That installs the required packages:
+- `keyboard` — barcode / credential keyboard-wedge capture  
+- `xarm-python-sdk` — UFACTORY Lite 6 arm control  
+
+**Optional (recommended for the Live-arm 3-D view in the GUI):**
+
+```bat
+python -m pip install pyopengltk PyOpenGL numpy
 ```
-Work through the Pre-Run Device Check (robot / reader / barcode all pass), calibrate
-the reader once (**USER_MANUAL §5** — it's remembered afterwards), and run a test.
 
----
+**Optional (developers only — unit tests):**
 
-## Step 6 — (Developers) run the test suite
-
-```bash
-cd Automation
-pip install -r requirements-dev.txt
+```bat
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
-Runs with **no hardware attached** and must be all-green after any code change.
+
+**Confirm:**
+
+```bat
+python -c "import keyboard, xarm; print('OK')"
+```
+
+---
+
+## Step 4 — Install RRM CLI (required for reader configure)
+
+The project loads `.hwg+` files by calling **`RRMTool_CLI.exe`**. Without it,
+barcode lookup still works but every configure fails.
+
+### Get the right download
+
+1. Open: https://www.rfideas.com/support/tools/downloads  
+2. Under **Remote Reader Management (RRM)**, download  
+   **RRM CLI – Windows** (currently **v2.3.1**).
+
+| Download | Use it? |
+|----------|---------|
+| **RRM CLI – Windows** | **Yes** — this has `RRMTool_CLI.exe` |
+| Configuration Utility – Windows | No (GUI only; you may already have it) |
+| Configuration Card Manager | No |
+| Smartcard Manager | No |
+
+3. Unzip the package (no admin install required). You should find:
+
+```
+…\RRM_Tool_WIN_v2.3.1\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe
+```
+
+A good place on the rig PC is next to the project, e.g.:
+
+```
+…\card-read-heights\
+├── RRM_Tool_WIN_v2.3.1\…
+└── card-read-height\          ← this repo
+```
+
+**Find it anytime:**
+
+```bat
+where /r C:\ RRMTool_CLI.exe
+```
+
+### Antivirus note (managed rf IDEAS PCs)
+
+If `RRMTool_CLI.exe` **vanishes** after unzipping, CrowdStrike/IT may have
+quarantined it. Ask IT for an exclusion on that folder/exe, then restore the
+file.
+
+---
+
+## Step 5 — Point the project at RRMTool_CLI.exe
+
+Edit **`files/rrmtool_path.txt`** (in the project root `files\`, not under
+`Automation\`). Put the **full path** to the exe on the first non-comment line:
+
+```
+C:\Users\…\RRM_Tool_WIN_v2.3.1\RRM_Tool_WIN_v2.3.1\RRM_Tool_exe\RRMTool_CLI.exe
+```
+
+Save the file. Then confirm from `Automation\`:
+
+```bat
+python -c "import config; print(config.RRM_CLI); print('FOUND=', config.RRM_CLI_FOUND)"
+```
+
+Must print the path and **`FOUND= True`**.
+
+Other ways the app can find it (if you prefer not to edit the file):
+1. Set env var `RRM_CLI` to the full path to the exe  
+2. Install/copy it to `C:\Program Files\rf IDEAS\RRMTool\RRMTool_CLI.exe`  
+3. Leave it under `Downloads\RRM_Tool_*` (auto-searched)
+
+---
+
+## Step 6 — Connect hardware
+
+| Device | What to do |
+|--------|------------|
+| **Lite 6 arm** | Power on; same LAN as the PC. Default IP in `config.py` is `192.168.1.177`. Change once if needed: `set ROBOT_IP=192.168.1.xxx` |
+| **WAVE ID reader** | Plug into USB. Close UFACTORY Studio / other apps that hold the arm or reader if they conflict |
+| **Barcode scanner** | USB keyboard-wedge. On some PCs run the terminal/GUI **as Administrator** so scans are captured |
+
+**Confirm robot network:**
+
+```bat
+ping 192.168.1.177
+```
+
+**Confirm card data is present** (usually already in the repo):
+- `files\AllCards.csv`
+- `files\hwg\*.hwg+` (filename must match each card **Name** + `.hwg+`)
+
+---
+
+## Step 7 — Smoke-test reader config (no robot)
+
+```bat
+cd path\to\card-read-height\Automation
+python reader\ReaderConfig.py
+```
+
+Scan a known card barcode. Expected: card name prints, then
+**`Reader configured.`**  
+If you see `RRMTool_CLI not found`, go back to Steps 4–5.
+
+---
+
+## Step 8 — Launch the GUI
+
+```bat
+cd path\to\card-read-height\Automation
+python gui\gui.py
+```
+
+1. Pass the Pre-Run Device Check (robot / reader / barcode).  
+2. **CALIBRATE READER → MARK READER TOP** once (saved for next times).  
+3. Pick a test and run a single card before a full batch.
+
+Full operator flow: **[USER_MANUAL.md](USER_MANUAL.md)**.
+
+---
+
+## Quick reference — commands from a cold start
+
+```bat
+cd path\to\card-read-height\Automation
+python -m pip install -r requirements.txt
+python -c "import config; print(config.RRM_CLI_FOUND)"
+python reader\ReaderConfig.py
+python gui\gui.py
+```
 
 ---
 
@@ -172,17 +235,29 @@ Runs with **no hardware attached** and must be all-green after any code change.
 
 | Path | Purpose |
 |------|---------|
-| `…\card-read-heights\RRM_Tool_WIN_v2.3.1\…\RRM_Tool_exe\RRMTool_CLI.exe` | **RRMTool CLI** (reader config) — Step 2 |
-| `card-read-height/files/rrmtool_path.txt` | Pins the RRMTool path (set once) |
-| `card-read-height/files/AllCards.csv` | Barcode → card / part / side |
-| `card-read-height/files/hwg/*.hwg+` | Per-card reader configs |
-| `card-read-height/files/calibration.json` | Saved MARK READER TOP calibration (auto) |
-| `card-read-height/results/` | Output CSVs / Excel |
-| `card-read-height/Automation/` | All runnable Python |
-
-> `config.py` treats the folder **above** `Automation/` (`card-read-height/`) as the
-> workspace root; keep `files/` and `results/` there.
+| `Automation\` | All runnable Python (`gui`, `reader`, `robot`) |
+| `Automation\requirements.txt` | Runtime pip packages |
+| `files\rrmtool_path.txt` | Pins `RRMTool_CLI.exe` (set once per PC) |
+| `files\AllCards.csv` | Barcode → card name / part / side |
+| `files\hwg\*.hwg+` | Per-card reader configs |
+| `files\calibration.json` | Saved MARK READER TOP (auto) |
+| `results\` | Output CSV / Excel |
+| `docs\USER_MANUAL.md` | How to run the rig day to day |
 
 ---
 
-rf IDEAS — Proprietary and Confidential — 2026-08-03
+## If something fails
+
+| Symptom | Fix |
+|---------|-----|
+| `python` / `pip` not found | Reinstall Python with **Add to PATH**; reopen terminal |
+| `ModuleNotFoundError` | From `Automation\`: `python -m pip install -r requirements.txt` |
+| `FOUND= False` / Reader config FAILED | Install **RRM CLI – Windows**, set `files\rrmtool_path.txt` |
+| Barcode never captured | Run as Administrator; confirm wedge types into Notepad |
+| Arm won’t connect | Ping IP; close UFACTORY Studio; check `ROBOT_IP` |
+
+More detail: **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+
+---
+
+rf IDEAS — Proprietary and Confidential — 2026-08-04
