@@ -417,7 +417,8 @@ class App:
                 ok = True
                 self.reader_info = info
                 model = info.get("Part-Number", "Unknown")
-                fw = info.get("USB-Firmware", "?")
+                fw = (info.get("Firmware Filename")
+                      or info.get("USB-Firmware", "?"))
                 self.root.after(0, self._set_reader_pill, "Reader: {}  FW {}".format(model, fw), BRAND['green'])
             self.root.after(0, self._set_check, "reader", ok,
                             "Reader OK" if ok else "No reader detected over USB")
@@ -1441,18 +1442,45 @@ class App:
         config.ensure_paths_exist()
         return config.PATHS["results"]
 
+    def _refresh_reader_identity(self):
+        """Pull Model # (Part-Number) and FW Filename from the connected reader.
+
+        Called when opening a results CSV so the file always records what RRMTool
+        reports right now — not a stale value from an earlier checklist pass.
+        Falls back to whatever was cached if the reader is briefly unavailable.
+        """
+        try:
+            info = get_reader_info() or {}
+        except Exception:
+            info = {}
+        if info.get("Part-Number") or info.get("Firmware Filename") or info.get("USB-Firmware"):
+            # Keep prior keys; overlay fresh values from -about.
+            merged = dict(self.reader_info or {})
+            merged.update(info)
+            self.reader_info = merged
+        return self.reader_info or {}
+
     def _reader_model_label(self):
         """Best available reader label for filenames/metadata.
 
         Prefers the detected part number; falls back to the dropdown selection
         (or the OTHER text) so a skipped reader check still names files sensibly.
         """
-        model = self.reader_info.get("Part-Number")
+        model = (self.reader_info or {}).get("Part-Number")
         if model:
             return model
         if self.reader_type.get() == "OTHER":
             return self.reader_other.get().strip()[:40] or "reader"
         return self.reader_type.get() or "reader"
+
+    def _reader_fw_filename(self):
+        """FW Filename string for CSV metadata (prefers Firmware Filename)."""
+        info = self.reader_info or {}
+        return (
+            info.get("Firmware Filename")
+            or info.get("USB-Firmware")
+            or ""
+        )
 
     def _robot_test_kinds(self, robot):
         """Ordered list of test kinds for this run (falls back to the legacy
@@ -1476,16 +1504,16 @@ class App:
 
     def _tapgo_metadata_rows(self, robot):
         """Header/metadata block for a Tap-and-Go results file."""
+        self._refresh_reader_identity()
         generated = datetime.now().strftime("%b-%d-%Y %H:%M:%S")
         model = self._reader_model_label()
         rtype = (self.reader_other.get().strip()[:40]
                  if self.reader_type.get() == "OTHER" else self.reader_type.get())
-        fw = (self.reader_info.get("Firmware Filename")
-              or self.reader_info.get("USB-Firmware", ""))
+        fw = self._reader_fw_filename()
         return [
             ["rf IDEAS - Tap-and-Go Read-Time Test"],
-            ["Reader Type", rtype, "Reader Model", model],
-            ["Firmware", fw],
+            ["Reader Type", rtype, "Model #", model],
+            ["FW Filename", fw],
             ["Descent speed", "{:g} mm/s".format(TAPGO_DESCENT_SPEED_MM_S),
              "Read timeout", "{:g} s".format(TAPGO_READ_TIMEOUT_S)],
             ["Taps per card", getattr(robot, "cfg_scans", "")],
@@ -1508,16 +1536,16 @@ class App:
 
     def _deadzone_metadata_rows(self, robot):
         """Header/metadata block for a Deadzone results file."""
+        self._refresh_reader_identity()
         generated = datetime.now().strftime("%b-%d-%Y %H:%M:%S")
         model = self._reader_model_label()
         rtype = (self.reader_other.get().strip()[:40]
                  if self.reader_type.get() == "OTHER" else self.reader_type.get())
-        fw = (self.reader_info.get("Firmware Filename")
-              or self.reader_info.get("USB-Firmware", ""))
+        fw = self._reader_fw_filename()
         return [
             ["rf IDEAS - Deadzone Ascent Test"],
-            ["Reader Type", rtype, "Reader Model", model],
-            ["Firmware", fw],
+            ["Reader Type", rtype, "Model #", model],
+            ["FW Filename", fw],
             ["Test speed", getattr(robot, "cfg_preset", ""),
              "Ascent step", "{:g}mm @ {:g} mm/s".format(
                  getattr(robot, "cfg_final_step_mm", 0),
@@ -1544,6 +1572,7 @@ class App:
 
     def _metadata_rows(self, robot):
         """The header/metadata block written once at the top of a results file."""
+        self._refresh_reader_identity()
         generated = datetime.now().strftime("%b-%d-%Y %H:%M:%S")
         model = self._reader_model_label()
         rtype = (
@@ -1551,15 +1580,12 @@ class App:
             if self.reader_type.get() == "OTHER"
             else self.reader_type.get()
         )
-        fw = (
-            self.reader_info.get("Firmware Filename")
-            or self.reader_info.get("USB-Firmware", "")
-        )
+        fw = self._reader_fw_filename()
         angles_disp = ", ".join("{} deg".format(a) for a in robot.cfg_angles)
         return [
             ["rf IDEAS - Credential Read Height Test"],
-            ["Reader Type", rtype, "Reader Model", model],
-            ["Firmware", fw],
+            ["Reader Type", rtype, "Model #", model],
+            ["FW Filename", fw],
             ["Test speed", robot.cfg_preset, "Final tap",
              "{:g}mm @ {:g} mm/s".format(robot.cfg_final_step_mm, robot.cfg_descent_speed)],
             ["Read angles", angles_disp],

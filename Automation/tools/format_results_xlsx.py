@@ -94,11 +94,14 @@ def _parse_csv(path):
                 continue
             if key == "reader type":
                 meta["reader_type"] = cells[1] if len(cells) > 1 else ""
-                if len(cells) > 3 and cells[2].lower() == "reader model":
+                if len(cells) > 3 and cells[2].lower() in ("reader model", "model #", "model#"):
                     meta["reader_model"] = cells[3]
                 continue
-            if key == "firmware":
+            if key in ("firmware", "fw filename", "fw_filename"):
                 meta["firmware"] = cells[1] if len(cells) > 1 else ""
+                continue
+            if key in ("model #", "model#", "reader model") and len(cells) > 1:
+                meta["reader_model"] = cells[1]
                 continue
             if key == "test speed":
                 meta["test_speed"] = cells[1] if len(cells) > 1 else ""
@@ -201,8 +204,8 @@ def build_workbook(metas, data_rows):
     # Metadata (label / value in A/B)
     meta_rows = [
         ("Reader Type", meta.get("reader_type") or ""),
-        ("Reader Model", meta.get("reader_model") or meta.get("reader_type") or ""),
-        ("Firmware", meta.get("firmware") or "(not recorded)"),
+        ("Model #", meta.get("reader_model") or meta.get("reader_type") or ""),
+        ("FW Filename", meta.get("firmware") or "(not recorded)"),
         ("Test Speed", meta.get("test_speed") or ""),
         ("Final Tap", meta.get("final_tap") or ""),
         ("Read Angles", meta.get("read_angles") or ""),
