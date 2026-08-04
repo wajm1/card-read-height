@@ -5,16 +5,16 @@
       "reader_height_mm": 112.4,
       "reader_floor_above_table_mm": 108.4,
       "staging_pose_deg": [
-        0.3,
+        -0.4,
         51.6,
-        122.9,
-        0.0,
+        123.0,
+        -0.0,
         71.4,
-        -270.9,
+        -271.6,
         0.0
       ],
       "table_z_mm": 59.81,
-      "marked_at": "2026-08-03T11:14:50"
+      "marked_at": "2026-08-03T11:54:34"
     },
     "MINI_DESKTOP": {
       "reader_height_mm": 105.4,
@@ -30,6 +30,21 @@
       ],
       "table_z_mm": 59.81,
       "marked_at": "2026-08-03T10:56:59"
+    },
+    "PICO": {
+      "reader_height_mm": 104.4,
+      "reader_floor_above_table_mm": 100.4,
+      "staging_pose_deg": [
+        -1.2,
+        46.4,
+        112.8,
+        -0.0,
+        66.4,
+        -272.4,
+        0.0
+      ],
+      "table_z_mm": 59.81,
+      "marked_at": "2026-08-03T15:46:41"
     }
   }
 }
