@@ -60,7 +60,7 @@ card-read-height/
 
 ## Quick start
 
-**New PC?** Follow the full checklist: **[docs/SETUP.md](docs/SETUP.md)**
+Follow the full checklist: **[docs/SETUP.md](docs/SETUP.md)**
 (Python, pip, packages, RRM CLI, hardware, smoke test).
 
 ```bash
